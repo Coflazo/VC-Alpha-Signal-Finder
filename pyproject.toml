@@ -6,13 +6,19 @@ requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.27",
     "pyyaml>=6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
 ]
 
 [project.optional-dependencies]
 # installed only when the stages that need them are built
 enrich = ["scrapling>=0.3", "crawl4ai>=0.4"]
+sheets = ["google-api-python-client>=2.150", "google-auth>=2.35"]
 reddit = ["praw>=7.7"]
 dev = ["pytest>=8.0"]
+
+[project.scripts]
+vc-alpha = "vc_alpha.app.main:serve"
 
 [build-system]
 requires = ["hatchling"]

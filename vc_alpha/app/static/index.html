@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VC Alpha Signal Finder</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="data:,">
+</head>
+<body>
+
+<header>
+  <h1>VC Alpha Signal Finder</h1>
+  <span class="sub" id="headline">loading…</span>
+</header>
+
+<nav role="tablist">
+  <button role="tab" data-tab="dashboard" aria-selected="true">Dashboard</button>
+  <button role="tab" data-tab="review" aria-selected="false">Review</button>
+  <button role="tab" data-tab="reports" aria-selected="false">Reports</button>
+  <button role="tab" data-tab="sheet" aria-selected="false">Sheet</button>
+  <button role="tab" data-tab="setup" aria-selected="false">Setup</button>
+</nav>
+
+<main>
+
+  <section id="dashboard">
+    <h2>Corpus</h2>
+    <div class="grid" id="metrics"></div>
+
+    <h2>Sources</h2>
+    <div class="table-wrap" style="margin-bottom:24px">
+      <table>
+        <thead><tr>
+          <th>Source</th><th class="num">Candidates</th><th class="num">Scored</th>
+          <th class="num">Triaged</th><th>Runs where</th>
+        </tr></thead>
+        <tbody id="sources"></tbody>
+      </table>
+    </div>
+
+    <h2>Run something</h2>
+    <div class="controls">
+      <select id="job-kind" aria-label="Job type">
+        <option value="collect">Collect</option>
+        <option value="score">Score (stage 2)</option>
+        <option value="pipeline">Pipeline (stages 3–5)</option>
+      </select>
+      <select id="job-source" aria-label="Source">
+        <option value="hackernews">Hacker News</option>
+        <option value="substack">Substack</option>
+        <option value="github">GitHub</option>
+        <option value="whatsapp">WhatsApp</option>
+      </select>
+      <input type="number" id="job-n" value="10" min="1" max="200" aria-label="How many">
+      <button class="act primary" id="job-start">Start</button>
+      <span class="sub" id="job-status"></span>
+    </div>
+    <div class="log" id="job-log">No job has run yet this session.</div>
+  </section>
+
+  <section id="review" hidden>
+    <h2>Review queue</h2>
+    <p class="note">
+      Marking candidates here is what turns the stage&nbsp;2 threshold from a guess into
+      a measured number. It is the highest-value thing in the app.
+    </p>
+    <div class="controls">
+      <select id="review-thesis" aria-label="Filter by thesis"><option value="">All theses</option></select>
+      <button class="act" id="review-refresh">Refresh</button>
+      <span class="sub" id="review-count"></span>
+    </div>
+    <div id="candidates"></div>
+  </section>
+
+  <section id="reports" hidden>
+    <h2>Reports</h2>
+    <div class="controls">
+      <select id="report-thesis" aria-label="Fund"></select>
+    </div>
+    <p class="note" id="report-note"></p>
+    <div class="table-wrap"><table>
+      <thead><tr id="report-head"></tr></thead>
+      <tbody id="report-body"></tbody>
+    </table></div>
+  </section>
+
+  <section id="sheet" hidden>
+    <h2>Google Sheet</h2>
+    <p class="note" id="sheet-note"></p>
+    <div class="controls">
+      <button class="act" id="sheet-refresh">Reload from Google</button>
+      <a class="act" id="sheet-open" target="_blank" rel="noopener"
+         style="display:none;text-decoration:none;padding:6px 12px">Open in Google Sheets ↗</a>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr id="sheet-head"></tr></thead>
+      <tbody id="sheet-body"></tbody>
+    </table></div>
+  </section>
+
+  <section id="setup" hidden>
+    <h2>What is still needed</h2>
+    <p class="note">
+      Everything below is optional and free, and none of it needs a payment card.
+      With none of it configured the app still collects from Hacker News, Substack
+      and GitHub, and scores locally.
+    </p>
+    <div class="card" id="setup-list"></div>
+  </section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
