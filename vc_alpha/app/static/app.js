@@ -97,6 +97,134 @@ $("#job-start").onclick = async () => {
   }
 };
 
+// --- entities and the dossier -----------------------------------------------
+
+LOADERS.entities = loadEntities;
+$("#entities-refresh").onclick = loadEntities;
+$("#entities-build").onclick = async () => {
+  const btn = $("#entities-build");
+  btn.disabled = true;
+  $("#entities-status").textContent = "extracting…";
+  try {
+    const s = await api("/api/entities/build", { method: "POST" });
+    $("#entities-status").textContent =
+      `${s.mentions} mentions from ${s.candidates} candidates · ${s.scored} scored`;
+    loadEntities();
+  } catch (e) {
+    $("#entities-status").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+async function loadEntities() {
+  const { entities } = await api("/api/entities?limit=60");
+  if (!entities.length) {
+    $("#entities-body").replaceChildren(el("tr", {}, [
+      el("td", { colSpan: 6, className: "empty",
+                 textContent: "No scored entities yet. Triage some candidates, then rebuild." })]));
+    return;
+  }
+  $("#entities-body").replaceChildren(...entities.map((e) => {
+    const row = el("tr", {}, [
+      el("td", { className: "num", textContent: pct(e.score) }),
+      el("td", { textContent: e.name }),
+      el("td", {}, [el("span", { className: "pill", textContent: e.kind })]),
+      el("td", { className: "num", textContent: e.mentions }),
+      // Corroboration across independent sources is itself signal.
+      el("td", {}, e.sources.map((s) => el("span", { className: "pill", textContent: s }))),
+      el("td", {}, [
+        e.needs_review
+          ? el("span", { className: "pill local", textContent: "check merge",
+                         title: "Matched on name alone — confirm this is one entity" })
+          : el("span", { textContent: "" }),
+      ]),
+    ]);
+    row.style.cursor = "pointer";
+    row.onclick = () => openDossier(e.id);
+    return row;
+  }));
+}
+
+async function openDossier(id) {
+  const d = await api(`/api/entities/${id}`);
+  const e = d.entity;
+  const box = $("#dossier");
+
+  const head = el("div", { className: "card" }, [
+    el("h3", { textContent: e.name, style: "margin:0 0 4px;font-size:16px" }),
+    el("div", { className: "meta" }, [
+      el("span", { className: "pill", textContent: e.kind }),
+      el("span", { className: "num", textContent: pct(e.score) }),
+      ...(e.domain ? [el("a", { href: `https://${e.domain}`, target: "_blank",
+                               rel: "noopener", textContent: e.domain })] : []),
+      ...e.sources.map((s) => el("span", { className: "pill", textContent: s })),
+    ]),
+  ]);
+  if (d.scoring?.corroboration > 1) {
+    head.append(el("p", { className: "note", style: "margin:8px 0 0",
+      textContent: `Seen in ${d.scoring.sources} independent sources, which raises the score by ${((d.scoring.corroboration - 1) * 100).toFixed(0)}%.` }));
+  }
+  if (e.needs_review) {
+    head.append(el("p", { className: "note", style: "margin:8px 0 0;color:var(--accent)",
+      textContent: "Matched on name alone. Confirm these are the same before acting on it." }));
+  }
+
+  // Why it scored what it scored. A number with no provenance gets redone.
+  const why = el("div", { className: "card", style: "margin-top:12px" }, [
+    el("h3", { textContent: "Why this score", style: "margin:0 0 8px;font-size:13px" }),
+  ]);
+  d.breakdown.forEach((b) => {
+    const bar = el("div", { style: "display:flex;gap:8px;align-items:center;margin:3px 0" }, [
+      el("span", { className: "num", style: "width:130px;font-size:12px", textContent: b.key }),
+      el("span", { className: "num", style: "width:46px;font-size:12px", textContent: b.value.toFixed(2) }),
+      el("span", {
+        style: `height:8px;border-radius:2px;width:${Math.abs(b.contribution) * 260}px;` +
+               `background:${b.negative ? "var(--bad)" : "var(--primary)"}`,
+      }),
+      el("span", { className: "num", style: "font-size:11px;color:var(--muted)",
+                   textContent: `${b.contribution >= 0 ? "+" : ""}${b.contribution.toFixed(3)}` }),
+    ]);
+    why.append(bar);
+  });
+
+  const support = el("div", { className: "card", style: "margin-top:12px" }, [
+    el("h3", { textContent: "Evidence for each signal", style: "margin:0 0 8px;font-size:13px" }),
+  ]);
+  if (d.support.length) {
+    d.support.forEach((s) => support.append(
+      el("p", { className: "why", style: "margin:6px 0" }, [
+        el("span", { className: "num", style: "font-size:11px", textContent: `${s.signal} ${s.score.toFixed(2)} ` }),
+        el("span", { textContent: `“${s.quote}” ` }),
+        el("a", { href: s.url, target: "_blank", rel: "noopener", textContent: s.source }),
+      ])));
+  } else {
+    support.append(el("p", { className: "note",
+      textContent: "No verified quotes. Quotes that do not appear in the source are dropped rather than shown." }));
+  }
+
+  const paths = el("div", { className: "card", style: "margin-top:12px" }, [
+    el("h3", { textContent: "Warm paths", style: "margin:0 0 8px;font-size:13px" }),
+  ]);
+  paths.append(d.warm_paths.length
+    ? el("ul", { style: "margin:0;padding-left:18px" },
+        d.warm_paths.map((p) => el("li", { textContent: p.describe })))
+    : el("p", { className: "note", textContent: "Nobody in your collected sources is near this one." }));
+
+  const ev = el("div", { className: "card", style: "margin-top:12px" }, [
+    el("h3", { textContent: `Evidence (${d.evidence.length})`, style: "margin:0 0 8px;font-size:13px" }),
+  ]);
+  d.evidence.forEach((x) => ev.append(el("p", { style: "margin:6px 0;font-size:13px" }, [
+    el("span", { className: "pill", textContent: x.source }),
+    el("span", { textContent: " " }),
+    el("a", { href: x.url, target: "_blank", rel: "noopener",
+              textContent: x.title || x.url }),
+  ])));
+
+  box.replaceChildren(head, why, support, paths, ev);
+  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 // --- review -----------------------------------------------------------------
 
 LOADERS.review = async () => {

@@ -36,6 +36,7 @@ def main() -> None:
     ap.add_argument("--floor", type=float, default=0.25)
     ap.add_argument("--limit", type=int, default=25, help="max candidates to triage")
     ap.add_argument("--thesis", help="only produce this fund's report")
+    ap.add_argument("--source", help="only triage candidates from this source")
     ap.add_argument("--research", action="store_true",
                     help="also run stage 4, which costs several calls per candidate")
     ap.add_argument("--out", type=Path, default=OUT_DIR)
@@ -62,7 +63,8 @@ def main() -> None:
     log.info("%d candidates passed stage 2 (lowest kept: %.3f)", len(gated), cutoff)
 
     # Stage 3.
-    public = triage.run(conn, router, active, threshold=cutoff, limit=args.limit)
+    public = triage.run(conn, router, active, threshold=cutoff, limit=args.limit,
+                        source=args.source)
     log.info("triage: %(triaged)d done, %(startups)d startups, "
              "%(invalid_json)d unparseable", public)
 

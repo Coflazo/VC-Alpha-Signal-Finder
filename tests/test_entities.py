@@ -175,3 +175,15 @@ def test_the_same_name_on_two_platforms_does_not_merge(conn):
     a = resolve(conn, Mention("alex", kind="person", handle="hackernews:alex"), now=NOW)
     b = resolve(conn, Mention("alex", kind="person", handle="reddit:alex"), now=NOW)
     assert a != b
+
+
+def test_a_later_identifier_clears_the_review_flag(conn):
+    """A name-only match that is later confirmed by a hard identifier is no longer
+    a guess. Leaving the flag set forever trains people to ignore it."""
+    a = resolve(conn, Mention("Acme", kind="company"), now=NOW)
+    # The flag is set by a *match*, not by a first sighting.
+    resolve(conn, Mention("Acme", kind="company"), now=NOW)
+    assert conn.execute("SELECT needs_review FROM entities WHERE id=?", (a,)).fetchone()[0] == 1
+
+    resolve(conn, Mention("Acme", kind="company", domain="acme.io"), now=NOW)
+    assert conn.execute("SELECT needs_review FROM entities WHERE id=?", (a,)).fetchone()[0] == 0

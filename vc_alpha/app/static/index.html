@@ -16,6 +16,7 @@
 
 <nav role="tablist">
   <button role="tab" data-tab="dashboard" aria-selected="true">Dashboard</button>
+  <button role="tab" data-tab="entities" aria-selected="false">Dossiers</button>
   <button role="tab" data-tab="review" aria-selected="false">Review</button>
   <button role="tab" data-tab="reports" aria-selected="false">Reports</button>
   <button role="tab" data-tab="sheet" aria-selected="false">Sheet</button>
@@ -57,6 +58,30 @@
       <span class="sub" id="job-status"></span>
     </div>
     <div class="log" id="job-log">No job has run yet this session.</div>
+  </section>
+
+  <section id="entities" hidden>
+    <h2>Founders and companies</h2>
+    <p class="note">
+      One row per person or company, assembled from every mention across every
+      source. Team is the strongest early-stage predictor, so this is the unit
+      worth ranking — a post is only evidence about one.
+    </p>
+    <div class="controls">
+      <button class="act primary" id="entities-build">Rebuild from candidates</button>
+      <button class="act" id="entities-refresh">Refresh</button>
+      <span class="sub" id="entities-status"></span>
+    </div>
+    <div class="table-wrap" style="margin-bottom:24px">
+      <table>
+        <thead><tr>
+          <th class="num">Score</th><th>Name</th><th>Kind</th>
+          <th class="num">Mentions</th><th>Seen in</th><th></th>
+        </tr></thead>
+        <tbody id="entities-body"></tbody>
+      </table>
+    </div>
+    <div id="dossier"></div>
   </section>
 
   <section id="review" hidden>

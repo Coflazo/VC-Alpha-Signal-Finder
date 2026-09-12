@@ -89,15 +89,23 @@ def run(
     threshold: float,
     limit: int = 50,
     sending: Sending = Sending.PUBLIC,
+    source: str | None = None,
 ) -> dict[str, int]:
-    """Triage everything that passed stage 2 and has not been triaged yet."""
+    """Triage everything that passed stage 2 and has not been triaged yet.
+
+    `source` narrows to one collector. Useful when a fund wants its own inbound
+    screened first, and when only some sources yield entities worth a dossier.
+    """
     by_id = {t.id: t for t in theses}
-    rows = conn.execute(
-        """SELECT id, raw_text, title, thesis_id FROM candidates
-           WHERE similarity >= ? AND triage_json IS NULL
-           ORDER BY similarity DESC LIMIT ?""",
-        (threshold, limit),
-    ).fetchall()
+    sql = ["""SELECT id, raw_text, title, thesis_id FROM candidates
+              WHERE similarity >= ? AND triage_json IS NULL"""]
+    params: list = [threshold]
+    if source:
+        sql.append("AND source = ?")
+        params.append(source)
+    sql.append("ORDER BY similarity DESC LIMIT ?")
+    params.append(limit)
+    rows = conn.execute(" ".join(sql), params).fetchall()
 
     stats = {"triaged": 0, "startups": 0, "invalid_json": 0, "no_capacity": 0}
 

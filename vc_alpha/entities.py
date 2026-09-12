@@ -268,10 +268,14 @@ def resolve(conn: sqlite3.Connection, mention: Mention, *, now: str) -> str:
             """UPDATE entities SET last_seen = ?, sources = ?,
                    domain = COALESCE(domain, ?), github = COALESCE(github, ?),
                    linkedin = COALESCE(linkedin, ?), handle = COALESCE(handle, ?),
-                   needs_review = MAX(needs_review, ?)
+                   -- A later sighting carrying a hard identifier confirms a match
+                   -- that was previously only a name guess, so the flag clears.
+                   -- Leaving it set forever would train people to ignore it.
+                   needs_review = ?
                WHERE id = ?""",
             (now, ",".join(sorted(sources)), mention.domain, mention.github,
-             mention.linkedin, mention.handle, int(flagged), entity_id),
+             mention.linkedin, mention.handle,
+             int(flagged and not keys), entity_id),
         )
 
     if mention.candidate_id:
