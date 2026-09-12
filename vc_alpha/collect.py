@@ -14,6 +14,9 @@ from vc_alpha import frontier, theses
 from vc_alpha.collectors.base import CandidateRecord
 from vc_alpha.collectors.github import GitHubCollector
 from vc_alpha.collectors.hackernews import HackerNewsCollector
+from vc_alpha.collectors.inbound import InboundCollector
+from vc_alpha.collectors.linkedin import LinkedInCollector
+from vc_alpha.collectors.reddit import RedditCollector
 from vc_alpha.collectors.substack import SubstackCollector
 from vc_alpha.collectors.whatsapp import WhatsAppCollector
 from vc_alpha.db import connect, now, retention_until
@@ -26,10 +29,17 @@ COLLECTORS = {
     "github": GitHubCollector,
     # Needs the database handle: it stores the full export, not just candidates.
     "whatsapp": lambda conn: WhatsAppCollector(conn),
+    "inbound": lambda: InboundCollector(),
+    "reddit": lambda conn: RedditCollector(conn),
+    "linkedin": lambda conn: LinkedInCollector(conn),
 }
 
+# Collectors that take the database handle because they need more than candidates.
+NEEDS_CONN = {"whatsapp", "reddit", "linkedin"}
+
 # Sources whose text must never reach a cloud provider, whatever keys are set.
-LOCAL_ONLY = {"whatsapp"}
+# Sources whose text must never reach a cloud provider, whatever keys are set.
+LOCAL_ONLY = {"whatsapp", "inbound"}
 
 
 def store(conn: sqlite3.Connection, records: list[CandidateRecord], active) -> int:
@@ -82,7 +92,7 @@ def main() -> None:
 
     active = theses.load_all()
     factory = COLLECTORS[args.source]
-    collector = factory(conn) if args.source in ("whatsapp",) else factory()
+    collector = factory(conn) if args.source in NEEDS_CONN else factory()
 
     for node in args.seed or []:
         if frontier.add_node(conn, args.source, node, source_kind="manual"):

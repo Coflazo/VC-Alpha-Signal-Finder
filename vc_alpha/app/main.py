@@ -40,6 +40,7 @@ LOCAL_ONLY = {
     "substack": "Substack returns 403 to datacenter IP ranges",
     "whatsapp": "private exports never leave this machine",
     "linkedin": "a datacenter IP is the fastest way to get flagged",
+    "inbound": "a fund's own deal flow stays on the fund's machine",
 }
 
 app = FastAPI(title="VC Alpha Signal Finder")
