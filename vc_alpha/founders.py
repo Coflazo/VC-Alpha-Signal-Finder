@@ -19,6 +19,7 @@ import logging
 import sqlite3
 
 from vc_alpha.entities import evidence, install
+from vc_alpha.quant.auction import SOURCE_AUDIENCE, CurseModel
 from vc_alpha.signals import SIGNALS, combine
 from vc_alpha.theses import Thesis
 
@@ -101,12 +102,27 @@ def score_entity(
 
     distinct_sources = len({r["source"] for r in rows})
     base = combine(scores, thesis.weights)
-    final = min(1.0, base * corroboration(distinct_sources))
+    corroborated = min(1.0, base * corroboration(distinct_sources))
+
+    # Winner's curse. A deal visible to two hundred funds is worth less than an
+    # identically-scored one visible to three, because conditional on winning a
+    # crowded process your signal was the maximum of many noisy draws and was
+    # therefore biased upward. The correction uses the least crowded source the
+    # entity was seen in: if you learned about it privately, you are not competing
+    # with everyone who could have read the public version.
+    curse = CurseModel()
+    sources = {r["source"] for r in rows}
+    penalty = min(
+        (curse.penalty(SOURCE_AUDIENCE.get(s, 100)) for s in sources), default=0.0
+    )
+    final = max(0.0, corroborated - penalty)
 
     return {
         "thesis": thesis.id,
         "base": round(base, 4),
         "corroboration": corroboration(distinct_sources),
+        "curse_penalty": round(penalty, 4),
+        "score_before_curse": round(corroborated, 4),
         "score": round(final, 4),
         "sources": distinct_sources,
         "evidence_count": len(rows),

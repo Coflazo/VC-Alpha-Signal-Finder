@@ -28,6 +28,8 @@ from vc_alpha.app import sheets
 from vc_alpha.app.jobs import runner
 from vc_alpha.db import connect
 from vc_alpha.llm import LADDER, Router
+from vc_alpha.quant.information import (
+    DecisionEconomics, calibrate_to_posterior, review_priority)
 
 log = logging.getLogger(__name__)
 
@@ -118,8 +120,17 @@ def providers() -> dict:
 
 @app.get("/api/candidates")
 def candidates(limit: int = 50, thesis: str | None = None,
-               unreviewed: bool = True) -> dict:
-    """The review queue, best first."""
+               unreviewed: bool = True, order: str = "information") -> dict:
+    """The review queue.
+
+    Ordered by expected value of information by default, not by score. Reviewing
+    the top-scoring candidate teaches you almost nothing — you were going to pursue
+    it anyway and the review will not change that. The information sits at the
+    decision boundary, among the candidates the model cannot separate, and these
+    labels exist precisely to calibrate that boundary.
+
+    Pass order=score for the conventional ranking.
+    """
     sql = ["SELECT * FROM candidates WHERE similarity IS NOT NULL"]
     params: list = []
     if thesis:
@@ -127,10 +138,13 @@ def candidates(limit: int = 50, thesis: str | None = None,
         params.append(thesis)
     if unreviewed:
         sql.append("AND reviewed = 0")
+    # Fetch a wider slice than requested, then reorder by information value in
+    # Python: EVSI is not expressible in SQL and the candidate set is small.
     sql.append("ORDER BY COALESCE(score, similarity) DESC LIMIT ?")
-    params.append(limit)
+    params.append(limit * 5 if order == "information" else limit)
 
     rows = []
+    econ = DecisionEconomics()
     for r in db().execute(" ".join(sql), params):
         triage = {}
         if r["triage_json"]:
@@ -154,7 +168,19 @@ def candidates(limit: int = 50, thesis: str | None = None,
             "reasoning": triage.get("reasoning"),
             "posted_at": r["posted_at"],
         })
-    return {"candidates": rows}
+
+    for row in rows:
+        posterior = calibrate_to_posterior(row["score"] or row["similarity"] or 0.0)
+        row["posterior"] = round(posterior, 4)
+        row["review_value"] = round(review_priority(posterior, econ), 5)
+
+    if order == "information":
+        rows.sort(key=lambda r: -r["review_value"])
+    return {
+        "candidates": rows[:limit],
+        "order": order,
+        "decision_threshold": round(econ.threshold, 4),
+    }
 
 
 class Verdict(BaseModel):
