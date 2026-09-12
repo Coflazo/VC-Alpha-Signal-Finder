@@ -40,6 +40,23 @@
       </table>
     </div>
 
+    <h2>Acceptance bar</h2>
+    <p class="note">
+      The optimal threshold for a fund with this much capital and this much time
+      left, by sequential assignment. It falls as the window closes and rises with
+      deal flow — better sourcing should make you <em>more</em> selective, not less.
+    </p>
+    <div class="controls">
+      <label class="sub">Slots left
+        <input type="number" id="dep-slots" value="14" min="1" max="200" style="width:70px"></label>
+      <label class="sub">Months left
+        <input type="number" id="dep-months" value="22" min="1" max="120" style="width:70px"></label>
+      <label class="sub">Deals/month
+        <input type="number" id="dep-rate" value="8" min="1" max="500" style="width:70px"></label>
+      <button class="act" id="dep-go">Compute</button>
+    </div>
+    <div class="grid" id="dep-out" style="margin-bottom:24px"></div>
+
     <h2>Run something</h2>
     <div class="controls">
       <select id="job-kind" aria-label="Job type">

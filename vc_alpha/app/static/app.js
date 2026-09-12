@@ -64,6 +64,7 @@ LOADERS.dashboard = async () => {
     ])));
 
   renderJob(d.job);
+  loadDeployment().catch(() => {});
 };
 
 function renderJob(job) {
@@ -96,6 +97,30 @@ $("#job-start").onclick = async () => {
     $("#job-start").disabled = false;
   }
 };
+
+// --- acceptance bar ---------------------------------------------------------
+
+async function loadDeployment() {
+  const q = new URLSearchParams({
+    slots: $("#dep-slots").value,
+    months: $("#dep-months").value,
+    deals_per_month: $("#dep-rate").value,
+  });
+  const d = await api(`/api/deployment?${q}`);
+  $("#dep-out").replaceChildren(...[
+    ["Bar now", d.threshold_now],
+    ["Midway", d.threshold_midway],
+    ["Final month", d.threshold_final],
+    ["Expected arrivals", d.arrivals_expected],
+  ].map(([label, value]) =>
+    el("div", { className: "card metric" }, [
+      el("span", { textContent: label }),
+      el("b", { textContent: typeof value === "number" && value < 1
+        ? value.toFixed(3) : value }),
+    ])));
+}
+
+$("#dep-go").onclick = loadDeployment;
 
 // --- entities and the dossier -----------------------------------------------
 

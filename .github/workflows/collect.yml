@@ -47,7 +47,10 @@ jobs:
         with:
           name: candidates-db
           path: data
-          workflow_conclusion: ""
+          # Must be "success", not empty. With no conclusion filter the action
+          # matches the currently-executing run, which has not uploaded anything
+          # yet, so every run silently restored nothing and started from zero.
+          workflow_conclusion: success
           if_no_artifact_found: warn
 
       - run: uv sync

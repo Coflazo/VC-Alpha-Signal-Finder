@@ -248,6 +248,32 @@ def report(thesis_id: str, limit: int = 100) -> dict:
     }
 
 
+@app.get("/api/deployment")
+def deployment(slots: int = 14, months: int = 22,
+               deals_per_month: float = 8.0) -> dict:
+    """What the acceptance bar should be right now, given fund and window left.
+
+    Sequential assignment (Derman, Lieberman and Ross). The threshold is the option
+    value of holding a slot: it falls as the window closes, falls as slots
+    accumulate, and rises with deal flow — so better sourcing should make a fund
+    more selective rather than less.
+
+    The score distribution comes from the pipeline's own output, so the bar is on
+    the same scale as the numbers it gates.
+    """
+    from vc_alpha.quant.deployment import recommend
+
+    scores = [
+        r[0] for r in db().execute(
+            "SELECT COALESCE(score, similarity) FROM candidates "
+            "WHERE COALESCE(score, similarity) IS NOT NULL"
+        ).fetchall()
+    ]
+    out = recommend(scores, slots, months, deals_per_month)
+    out["observations"] = len(scores)
+    return out
+
+
 # --- entities ---------------------------------------------------------------
 
 
