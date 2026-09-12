@@ -1,0 +1,21 @@
+.env
+.env.*
+*.local
+.DS_Store
+
+# credentials
+*service-account*.json
+credentials.json
+token.json
+
+# models and data
+*.gguf
+models/
+data/
+*.sqlite
+*.db
+
+# build
+build/
+__pycache__/
+.venv/
