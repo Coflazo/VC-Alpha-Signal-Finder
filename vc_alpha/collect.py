@@ -15,6 +15,7 @@ from vc_alpha.collectors.base import CandidateRecord
 from vc_alpha.collectors.github import GitHubCollector
 from vc_alpha.collectors.hackernews import HackerNewsCollector
 from vc_alpha.collectors.substack import SubstackCollector
+from vc_alpha.collectors.whatsapp import WhatsAppCollector
 from vc_alpha.db import connect, now, retention_until
 
 log = logging.getLogger(__name__)
@@ -23,7 +24,12 @@ COLLECTORS = {
     "substack": SubstackCollector,
     "hackernews": HackerNewsCollector,
     "github": GitHubCollector,
+    # Needs the database handle: it stores the full export, not just candidates.
+    "whatsapp": lambda conn: WhatsAppCollector(conn),
 }
+
+# Sources whose text must never reach a cloud provider, whatever keys are set.
+LOCAL_ONLY = {"whatsapp"}
 
 
 def store(conn: sqlite3.Connection, records: list[CandidateRecord], active) -> int:
@@ -75,7 +81,8 @@ def main() -> None:
         return
 
     active = theses.load_all()
-    collector = COLLECTORS[args.source]()
+    factory = COLLECTORS[args.source]
+    collector = factory(conn) if args.source in ("whatsapp",) else factory()
 
     for node in args.seed or []:
         if frontier.add_node(conn, args.source, node, source_kind="manual"):

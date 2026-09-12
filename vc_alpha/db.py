@@ -67,6 +67,23 @@ CREATE TABLE IF NOT EXISTS nodes (
 
 CREATE INDEX IF NOT EXISTS idx_frontier ON nodes(source, active, exhausted, depth);
 
+-- Full WhatsApp exports, kept whole so a better model can re-read them later
+-- without a re-import. Messages are promoted into `candidates` only when they
+-- look like a lead; the rest stay here and never reach the pipeline.
+CREATE TABLE IF NOT EXISTS whatsapp_messages (
+  id              TEXT PRIMARY KEY,     -- sha256 of chat + timestamp + sender + text
+  chat            TEXT NOT NULL,
+  sender          TEXT,
+  sent_at         TEXT,
+  text            TEXT NOT NULL,
+  line_no         INTEGER,
+  promoted        INTEGER NOT NULL DEFAULT 0,
+  retention_until TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_wa_chat ON whatsapp_messages(chat, sent_at);
+CREATE INDEX IF NOT EXISTS idx_wa_promoted ON whatsapp_messages(promoted);
+
 -- Author activity, for Reddit's co-posting graph and LinkedIn cross-seeding.
 CREATE TABLE IF NOT EXISTS author_activity (
   source     TEXT NOT NULL,
@@ -101,14 +118,22 @@ def retention_until(days: int = RETENTION_DAYS) -> str:
 
 def purge_expired(conn: sqlite3.Connection) -> int:
     """Delete candidates past their retention date. Returns how many went."""
-    cur = conn.execute("DELETE FROM candidates WHERE retention_until < ?", (now(),))
+    n = conn.execute(
+        "DELETE FROM candidates WHERE retention_until < ?", (now(),)
+    ).rowcount
+    n += conn.execute(
+        "DELETE FROM whatsapp_messages WHERE retention_until < ?", (now(),)
+    ).rowcount
     conn.commit()
-    return cur.rowcount
+    return n
 
 
 def forget_author(conn: sqlite3.Connection, author: str) -> int:
     """Erase one person everywhere. Single path, so a deletion request is one call."""
     n = conn.execute("DELETE FROM candidates WHERE author = ?", (author,)).rowcount
     conn.execute("DELETE FROM author_activity WHERE author = ?", (author,))
+    n += conn.execute(
+        "DELETE FROM whatsapp_messages WHERE sender = ?", (author,)
+    ).rowcount
     conn.commit()
     return n

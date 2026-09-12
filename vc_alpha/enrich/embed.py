@@ -142,7 +142,11 @@ def score_pending(
     vectors = thesis_vectors(emb, theses)
     by_id = {t.id: t for t in theses}
 
-    sql = "SELECT id, raw_text, title FROM candidates WHERE embedding IS NULL"
+    # WhatsApp text is private and must be embedded locally. Rather than trusting
+    # callers to remember, a cloud embedder simply does not see those rows.
+    sql = "SELECT id, raw_text, title, source FROM candidates WHERE embedding IS NULL"
+    if emb.provider != "ollama":
+        sql += " AND source NOT IN ('whatsapp')"
     if limit:
         sql += f" LIMIT {int(limit)}"
     rows = conn.execute(sql).fetchall()
