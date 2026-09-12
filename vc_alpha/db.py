@@ -40,7 +40,11 @@ CREATE TABLE IF NOT EXISTS candidates (
   reviewed        INTEGER NOT NULL DEFAULT 0,
   was_good        INTEGER,
 
-  retention_until TEXT NOT NULL
+  retention_until TEXT NOT NULL,
+
+  -- Why a cheap filter dropped this before embedding. Recorded rather
+  -- than deleted so over-filtering is visible rather than silent.
+  filtered_reason TEXT
 );
 
 -- Drives the "what still needs work" queries at every stage.

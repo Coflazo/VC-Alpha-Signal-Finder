@@ -18,6 +18,7 @@ import struct
 
 import httpx
 
+from vc_alpha.filters import reject
 from vc_alpha.theses import Thesis
 
 log = logging.getLogger(__name__)
@@ -144,14 +145,32 @@ def score_pending(
 
     # WhatsApp text is private and must be embedded locally. Rather than trusting
     # callers to remember, a cloud embedder simply does not see those rows.
-    sql = "SELECT id, raw_text, title, source FROM candidates WHERE embedding IS NULL"
+    sql = ("SELECT id, raw_text, title, source, posted_at FROM candidates "
+           "WHERE embedding IS NULL AND filtered_reason IS NULL")
     if emb.provider != "ollama":
         sql += " AND source NOT IN ('whatsapp')"
     if limit:
         sql += f" LIMIT {int(limit)}"
     rows = conn.execute(sql).fetchall()
 
-    stats = {"scored": 0, "skipped_empty": 0}
+    stats = {"scored": 0, "skipped_empty": 0, "filtered": 0}
+
+    # Filter before embedding, not after. Embedding costs seconds per item on
+    # modest hardware and these predicates cost microseconds, so every candidate
+    # dropped here is time bought back. The reason is recorded rather than the row
+    # deleted, so over-filtering is visible instead of silent.
+    keep = []
+    for row in rows:
+        if r := reject(row["raw_text"] or "", posted_at=row["posted_at"]):
+            conn.execute(
+                "UPDATE candidates SET filtered_reason = ? WHERE id = ?",
+                (f"{r.filter}: {r.reason}", row["id"]),
+            )
+            stats["filtered"] += 1
+        else:
+            keep.append(row)
+    conn.commit()
+    rows = keep
 
     for i in range(0, len(rows), batch):
         chunk = [r for r in rows[i : i + batch] if (r["raw_text"] or "").strip()]
