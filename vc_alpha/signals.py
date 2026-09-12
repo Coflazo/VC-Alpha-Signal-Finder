@@ -98,9 +98,14 @@ def schema() -> dict:
     and an analyst who cannot check a claim will redo the work, which defeats the
     entire purpose of the product.
     """
+    # additionalProperties must be false on *every* object, including nested ones.
+    # Providers running strict structured-output mode reject the schema outright
+    # otherwise, with a 400 rather than a degraded answer. Found by calling a real
+    # endpoint; no amount of local testing would have surfaced it.
     props = {
         s.key: {
             "type": "object",
+            "additionalProperties": False,
             "properties": {
                 "score": {"type": "number", "description": "0 to 1"},
                 "quote": {
@@ -119,6 +124,7 @@ def schema() -> dict:
     props["summary"] = {"type": "string", "description": "One sentence on the company"}
     return {
         "type": "object",
+        "additionalProperties": False,
         "properties": props,
         "required": [s.key for s in SIGNALS] + ["stage", "summary"],
     }

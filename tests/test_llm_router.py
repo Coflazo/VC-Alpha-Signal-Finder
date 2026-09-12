@@ -127,3 +127,67 @@ def test_transport_errors_do_not_end_the_run(conn):
 def test_json_is_recovered_from_chatty_replies(reply):
     """Providers differ on honouring a schema. One repair beats spending a retry."""
     assert _extract_json(reply) == {"ok": True}
+
+
+# --- rate limiting, from a real 429 ------------------------------------------
+
+
+def _resp(headers):
+    return httpx.Response(429, headers=headers,
+                          request=httpx.Request("POST", "https://x/y"))
+
+
+def test_a_token_throttle_is_not_daily_exhaustion():
+    """The bug this fixes: Groq's free tier limits 8,000 tokens/min against 1,000
+    requests/day, so the binding constraint is tokens. Treating a sub-second token
+    throttle as daily exhaustion wrote the provider off for 24 hours after five
+    calls."""
+    from vc_alpha.llm import RateLimited
+    e = RateLimited.from_response(_resp({
+        "x-ratelimit-remaining-tokens": "0",
+        "x-ratelimit-reset-tokens": "585ms",
+        "x-ratelimit-remaining-requests": "997",
+        "x-ratelimit-reset-requests": "4m19.2s",
+    }))
+    assert e.daily is False
+    assert e.retry_after < 1.0, "a 585ms wait must not be read as four minutes"
+
+
+def test_an_empty_request_budget_is_daily_exhaustion():
+    from vc_alpha.llm import RateLimited
+    e = RateLimited.from_response(_resp({
+        "x-ratelimit-remaining-requests": "0",
+        "x-ratelimit-reset-requests": "4m19.2s",
+    }))
+    assert e.daily is True
+
+
+def test_explicit_retry_after_wins():
+    from vc_alpha.llm import RateLimited
+    assert RateLimited.from_response(_resp({"retry-after": "12"})).retry_after == 12.0
+
+
+def test_a_429_with_no_headers_still_gives_a_sane_wait():
+    from vc_alpha.llm import RateLimited
+    e = RateLimited.from_response(_resp({}))
+    assert 0 < e.retry_after <= 30 and e.daily is False
+
+
+def test_reset_requests_alone_is_not_read_as_a_retry_after():
+    """It appears on successful responses too; it is when the window rolls over,
+    not an instruction to wait."""
+    from vc_alpha.llm import RateLimited
+    e = RateLimited.from_response(_resp({
+        "x-ratelimit-remaining-requests": "500",
+        "x-ratelimit-reset-requests": "4m19.2s",
+    }))
+    assert e.retry_after < 30 and e.daily is False
+
+
+def test_a_retired_model_picks_a_replacement_from_the_catalogue():
+    from vc_alpha.llm import _pick_chat_model
+    catalogue = ["whisper-large-v3", "openai/gpt-oss-120b", "qwen/qwen3.8-27b",
+                 "meta-llama/llama-prompt-guard-2-22m"]
+    choice = _pick_chat_model(catalogue, "openai/gpt-oss-20b")
+    assert choice == "openai/gpt-oss-120b", "should prefer the same family"
+    assert "whisper" not in _pick_chat_model(catalogue, "nothing-alike")
