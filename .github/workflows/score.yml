@@ -1,0 +1,63 @@
+name: score
+
+# Stage 2. This is the step the dev laptop cannot do at a sensible speed: 2.4s per
+# embedding on a 2017 dual-core i5 against roughly 0.6s here, and this machine is
+# not also being used to write the code.
+
+on:
+  schedule:
+    - cron: "42 */6 * * *"   # 25 minutes after collect, so it has something to chew
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-db
+  cancel-in-progress: false
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true
+        with:
+          name: candidates-db
+          path: data
+          if_no_artifact_found: warn
+
+      - run: uv sync
+
+      - name: Embed and score
+        env:
+          # Every key is optional. With none set the job still runs and simply
+          # does less, which is the promise the product makes.
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "${GEMINI_API_KEY:-}" ]; then
+            echo "::warning::no GEMINI_API_KEY, skipping. Add one free at aistudio.google.com"
+            exit 0
+          fi
+          uv run python -m vc_alpha.score_all
+
+      - name: Distribution
+        if: always()
+        run: |
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          uv run python -m vc_alpha.calibrate distribution >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidates-db
+          path: data/candidates.sqlite
+          retention-days: 90
+          overwrite: true

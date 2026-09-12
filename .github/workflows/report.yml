@@ -1,0 +1,81 @@
+name: report
+
+# Stages 3 to 5. Daily rather than six-hourly: triage spends a finite free
+# allowance, and there is no point screening the same shortlist repeatedly.
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Candidates to triage
+        default: "25"
+      research:
+        description: Also run stage 4 research
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-db
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true
+        with:
+          name: candidates-db
+          path: data
+          if_no_artifact_found: warn
+
+      - run: uv sync
+
+      - name: Triage, rank and report
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+        run: |
+          if [ -z "${GEMINI_API_KEY:-}${GROQ_API_KEY:-}${CEREBRAS_API_KEY:-}" ]; then
+            echo "::warning::no inference keys set, skipping. All three are free."
+            exit 0
+          fi
+          uv run python -m vc_alpha.pipeline \
+            --limit '${{ inputs.limit || '25' }}' \
+            ${{ inputs.research == 'true' && '--research' || '' }}
+
+      - name: Summary
+        if: always()
+        run: |
+          for f in data/reports/*.csv; do
+            [ -e "$f" ] || continue
+            echo "### $(basename "$f" .csv) — $(($(wc -l < "$f") - 1)) rows" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports
+          path: data/reports/
+          retention-days: 90
+          overwrite: true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidates-db
+          path: data/candidates.sqlite
+          retention-days: 90
+          overwrite: true

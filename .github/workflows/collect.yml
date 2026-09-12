@@ -1,0 +1,91 @@
+name: collect
+
+# Free 4 vCPU runners, four times this project's dev laptop, on a schedule and
+# without anyone's machine being awake. The database is carried between runs as an
+# artifact rather than committed: it holds personal data, and committing it would
+# make retention_until unenforceable and publish it if the repo ever goes public.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"   # every six hours, off the hour to dodge the stampede
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Source to collect
+        type: choice
+        options: [all, substack, hackernews, github]
+        default: all
+      visits:
+        description: Nodes to visit per source
+        default: "10"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-db          # collect, score and report share one database
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Restore the database from the last run
+        uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true       # the first ever run has nothing to restore
+        with:
+          name: candidates-db
+          path: data
+          workflow_conclusion: ""
+          if_no_artifact_found: warn
+
+      - run: uv sync
+
+      - name: Collect
+        env:
+          # Raises GitHub's API rate limit. Never required.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          chosen='${{ inputs.source || 'all' }}'
+          visits='${{ inputs.visits || '10' }}'
+          # WhatsApp is deliberately absent. Private exports do not belong on a
+          # shared runner, and they live only on the machine that imported them.
+          for src in substack hackernews github; do
+            if [ "$chosen" = "all" ] || [ "$chosen" = "$src" ]; then
+              echo "::group::$src"
+              uv run python -m vc_alpha.collect --source "$src" --visits "$visits"
+              echo "::endgroup::"
+            fi
+          done
+
+      - name: Summary
+        if: always()
+        run: |
+          uv run python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          from vc_alpha.db import connect
+          c = connect("data/candidates.sqlite")
+          print("| source | candidates |")
+          print("|---|---|")
+          for r in c.execute(
+              "SELECT source, COUNT(*) n FROM candidates GROUP BY source ORDER BY n DESC"
+          ):
+              print(f"| {r['source']} | {r['n']} |")
+          n = c.execute("SELECT COUNT(*) FROM nodes WHERE active=1").fetchone()[0]
+          print(f"\n{n} active frontier nodes.")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidates-db
+          path: data/candidates.sqlite
+          retention-days: 90
+          overwrite: true
