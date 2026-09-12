@@ -112,7 +112,10 @@ LADDER = [
     # what makes the product work with nothing configured at all, and the only
     # option for private sources.
     Provider("ollama", "OLLAMA_HOST",
-             "http://localhost:11434/v1", "qwen2.5:3b-instruct-q4_K_M",
+             "http://localhost:11434/v1",
+             # Overridable: on slow hardware a 1B model that answers in a minute
+             # beats a 3B that takes five, and local is a fallback either way.
+             os.environ.get("OLLAMA_MODEL", "qwen2.5:3b-instruct-q4_K_M"),
              10_000_000),
 ]
 

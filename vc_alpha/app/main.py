@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from vc_alpha import score, theses
+from vc_alpha import entities, founders, score, theses, warmpath
 from vc_alpha.app import sheets
 from vc_alpha.app.jobs import runner
 from vc_alpha.db import connect
@@ -221,10 +221,96 @@ def report(thesis_id: str, limit: int = 100) -> dict:
     }
 
 
+# --- entities ---------------------------------------------------------------
+
+
+@app.get("/api/entities")
+def list_entities(limit: int = 50) -> dict:
+    conn = db()
+    entities.install(conn)
+    rows = []
+    for r in entities.ranked(conn, limit=limit):
+        detail = json.loads(r["signals_json"]) if r["signals_json"] else {}
+        rows.append({
+            "id": r["id"], "kind": r["kind"], "name": r["name"],
+            "domain": r["domain"], "score": r["score"],
+            "mentions": r["mentions"],
+            "sources": [s for s in (r["sources"] or "").split(",") if s],
+            "needs_review": bool(r["needs_review"]),
+            "thesis": detail.get("thesis"),
+            "corroboration": detail.get("corroboration"),
+        })
+    return {"entities": rows}
+
+
+@app.get("/api/entities/{entity_id}")
+def dossier(entity_id: str) -> dict:
+    """Everything known about one founder or company, with the source of each claim.
+
+    This is the screen the product lives or dies on. An analyst who cannot check a
+    claim redoes the work, and then the tool has saved nobody anything — so every
+    number here arrives with the text that produced it.
+    """
+    conn = db()
+    entities.install(conn)
+    row = conn.execute("SELECT * FROM entities WHERE id = ?", (entity_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "no such entity")
+
+    detail = json.loads(row["signals_json"]) if row["signals_json"] else {}
+    ev = [
+        {
+            "id": e["id"], "source": e["source"], "url": e["source_url"],
+            "title": e["title"], "author": e["author"], "role": e["role"],
+            "posted_at": e["posted_at"], "similarity": e["similarity"],
+            "text": (e["raw_text"] or "")[:400],
+        }
+        for e in entities.evidence(conn, entity_id)
+    ]
+
+    paths = [
+        {"kind": p.kind, "via": p.via, "person": p.person,
+         "strength": p.strength, "describe": p.describe()}
+        for p in warmpath.paths_to(conn, entity_id)
+    ]
+
+    breakdown = []
+    if detail.get("signals"):
+        thesis = next((t for t in theses.load_all() if t.id == detail.get("thesis")), None)
+        from vc_alpha.signals import explain
+        breakdown = explain(detail["signals"], thesis.weights if thesis else None)
+
+    return {
+        "entity": {
+            "id": row["id"], "kind": row["kind"], "name": row["name"],
+            "domain": row["domain"], "github": row["github"],
+            "linkedin": row["linkedin"], "score": row["score"],
+            "mentions": row["mentions"], "needs_review": bool(row["needs_review"]),
+            "sources": [s for s in (row["sources"] or "").split(",") if s],
+        },
+        "scoring": detail,
+        "breakdown": breakdown,
+        "support": detail.get("support", []),
+        "evidence": ev,
+        "warm_paths": paths,
+    }
+
+
+@app.post("/api/entities/build")
+def build_entities() -> dict:
+    """Extract entities from candidates, then score them. Both are local and cheap."""
+    from vc_alpha import extract
+    conn = db()
+    stats = extract.build(conn)
+    stats |= founders.score_all(conn, theses.load_all())
+    return stats
+
+
 # --- jobs -------------------------------------------------------------------
 
 JOB_COMMANDS = {
     "collect": lambda src, n: ["vc_alpha.collect", "--source", src, "--visits", str(n)],
+    "entities": lambda src, n: ["vc_alpha.build_entities"],
     "score": lambda src, n: ["vc_alpha.score_all"],
     "pipeline": lambda src, n: ["vc_alpha.pipeline", "--limit", str(n)],
 }

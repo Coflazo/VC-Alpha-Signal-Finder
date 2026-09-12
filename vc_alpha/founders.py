@@ -36,6 +36,19 @@ def corroboration(sources: int) -> float:
     return CORROBORATION.get(sources, CORROBORATION_MAX if sources > 3 else 1.0)
 
 
+def _quote_is_real(quote: str, source_text: str) -> bool:
+    """Does this quote actually appear in the post?
+
+    Models fabricate supporting quotes, and a fabricated one is worse than no quote
+    at all: it looks like evidence, so it gets trusted rather than checked. Compared
+    on collapsed whitespace and casing, since models reflow text they copy.
+    """
+    if not quote.strip():
+        return False
+    norm = lambda s: " ".join(s.lower().split())
+    return norm(quote) in norm(source_text or "")
+
+
 def aggregate(rows: list[sqlite3.Row]) -> tuple[dict[str, float], list[dict]]:
     """Best score per signal across every piece of evidence, with its quote.
 
@@ -58,11 +71,15 @@ def aggregate(rows: list[sqlite3.Row]) -> tuple[dict[str, float], list[dict]]:
             value = float(block.get("score") or 0.0)
             if value <= best.get(sig.key, -1.0):
                 continue
+            quote = (block.get("quote") or "").strip()
+            verified = _quote_is_real(quote, row["raw_text"] or "")
             best[sig.key] = value
             quotes[sig.key] = {
                 "signal": sig.key,
                 "score": value,
-                "quote": (block.get("quote") or "").strip(),
+                # A quote that is not in the source is dropped rather than shown.
+                "quote": quote if verified else "",
+                "fabricated": bool(quote) and not verified,
                 "source": row["source"],
                 "url": row["source_url"],
             }

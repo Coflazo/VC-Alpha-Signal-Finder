@@ -31,7 +31,10 @@ def treeo():
     return next(t for t in theses.load_all() if t.id == "treeo")
 
 
-def add(conn, cid, source, *, author=None, node=None, signals=None, quote="built it"):
+def add(conn, cid, source, *, author=None, node=None, signals=None, quote="built it",
+        text=None):
+    """Insert a candidate whose text contains its own quotes, since quotes are now
+    verified against the source and a fixture that ignores that tests nothing."""
     triage = None
     if signals:
         triage = json.dumps({k: {"score": v, "quote": quote} for k, v in signals.items()})
@@ -39,7 +42,8 @@ def add(conn, cid, source, *, author=None, node=None, signals=None, quote="built
         """INSERT INTO candidates (id, source, source_url, raw_text, author, node,
            discovered_at, retention_until, triage_json)
            VALUES (?,?,?,?,?,?,?,?,?)""",
-        (cid, source, f"https://x/{cid}", "text", author, node, NOW, NOW, triage),
+        (cid, source, f"https://x/{cid}", text or f"I {quote} here.", author, node,
+         NOW, NOW, triage),
     )
     conn.commit()
 
@@ -202,3 +206,40 @@ def test_form_exports_match_columns_loosely(tmp_path: Path):
 def test_inbound_never_branches(tmp_path: Path):
     (tmp_path / "pitch.eml").write_text(EML, encoding="utf-8")
     assert InboundCollector(tmp_path).visit(".").neighbours == []
+
+
+def test_a_fabricated_quote_is_dropped(conn, treeo):
+    """Models invent supporting quotes. A fabricated one is worse than none: it
+    looks like evidence, so it gets trusted instead of checked."""
+    conn.execute(
+        """INSERT INTO candidates (id, source, source_url, raw_text, discovered_at,
+           retention_until, triage_json) VALUES ('f','hackernews','https://x/f',
+           'I built an invoice tool.', ?, ?, ?)""",
+        (NOW, NOW, json.dumps({"thesis_fit": {"score": 0.9,
+                                              "quote": "we raised a Series B"}})),
+    )
+    conn.commit()
+    e = resolve(conn, Mention("F", domain="f.io", candidate_id="f"), now=NOW)
+
+    from vc_alpha.entities import evidence
+    _, support = aggregate(evidence(conn, e))
+    fit = next(s for s in support if s["signal"] == "thesis_fit")
+    assert fit["quote"] == ""
+    assert fit["fabricated"] is True
+    assert score_entity(conn, e, treeo)["support"] == []
+
+
+def test_a_real_quote_survives_reflowed_whitespace(conn):
+    """Models reflow text they copy. Comparison collapses whitespace and case."""
+    conn.execute(
+        """INSERT INTO candidates (id, source, source_url, raw_text, discovered_at,
+           retention_until, triage_json) VALUES ('r','hackernews','https://x/r',
+           'I built   an invoice\ntool for banks.', ?, ?, ?)""",
+        (NOW, NOW, json.dumps({"thesis_fit": {"score": 0.9,
+                                              "quote": "I built an invoice tool"}})),
+    )
+    conn.commit()
+    e = resolve(conn, Mention("R", domain="r.io", candidate_id="r"), now=NOW)
+    from vc_alpha.entities import evidence
+    _, support = aggregate(evidence(conn, e))
+    assert next(s for s in support if s["signal"] == "thesis_fit")["quote"]

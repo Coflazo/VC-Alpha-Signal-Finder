@@ -179,8 +179,20 @@ class Mention:
         return hashlib.sha256("|".join(seed).encode()).hexdigest()[:32]
 
 
+# Columns added after the first release. SQLite has no ALTER TABLE IF NOT EXISTS,
+# and CREATE TABLE IF NOT EXISTS silently leaves an older table alone, so a schema
+# change is invisible until a query fails on live data. Applied explicitly instead.
+_ADDED_COLUMNS = {"entities": {"handle": "TEXT"}}
+
+
 def install(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    for table, columns in _ADDED_COLUMNS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns.items():
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+                log.info("migrated %s: added %s", table, name)
     conn.commit()
 
 
