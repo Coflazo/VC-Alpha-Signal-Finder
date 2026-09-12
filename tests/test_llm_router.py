@@ -8,7 +8,8 @@ import httpx
 import pytest
 
 from vc_alpha.llm import (
-    Budget, NoCapacityLeft, PrivateTextRefused, Provider, Router, _extract_json,
+    Budget, NoCapacityLeft, PrivateTextRefused, Provider, Router, Sending,
+    _extract_json,
 )
 
 A = Provider("a", "KEY_A", "https://a.test/v1", "model-a", daily_requests=2)
@@ -35,11 +36,22 @@ def router(conn, responder):
 
 
 def test_private_text_is_refused_before_any_network_call(conn):
+    """The guard exists so a WhatsApp message cannot reach a training-on-data tier."""
     def explode(*a, **k):
-        raise AssertionError("should never have been called")
+        raise AssertionError("a private message reached the network")
 
     with pytest.raises(PrivateTextRefused):
-        router(conn, explode).complete("our thesis is...", public_text=False)
+        router(conn, explode).complete(
+            "Ayse: my friend just raised a seed round", sending=Sending.PRIVATE
+        )
+
+
+def test_redacted_fragments_are_allowed_through(conn):
+    """A stripped fragment is the agreed path for private sources."""
+    out = router(conn, lambda p, prompt, schema: "ok").complete(
+        "a company called Acme raised a seed round", sending=Sending.REDACTED
+    )
+    assert out == "ok"
 
 
 def test_falls_over_to_the_next_provider_on_429(conn):
@@ -54,7 +66,7 @@ def test_falls_over_to_the_next_provider_on_429(conn):
             )
         return "second provider answered"
 
-    out = router(conn, responder).complete("public post", public_text=True)
+    out = router(conn, responder).complete("public post", sending=Sending.PUBLIC)
     assert calls == ["a", "b"]
     assert out == "second provider answered"
 
@@ -69,7 +81,7 @@ def test_a_rate_limited_provider_is_skipped_next_time(conn):
         )
     ))
     with pytest.raises(NoCapacityLeft):
-        r.complete("public", public_text=True)
+        r.complete("public", sending=Sending.PUBLIC)
     assert r.available() == []
 
 
@@ -77,7 +89,7 @@ def test_budget_stops_a_provider_at_its_daily_limit(conn):
     r = router(conn, lambda p, prompt, schema: "ok")
     assert [p.name for p in r.available()] == ["a", "b"]
     for _ in range(A.daily_requests):
-        r.complete("public", public_text=True)
+        r.complete("public", sending=Sending.PUBLIC)
     assert [p.name for p in r.available()] == ["b"], "exhausted provider still offered"
 
 
@@ -95,7 +107,7 @@ def test_raises_when_nothing_is_left(conn, monkeypatch):
     monkeypatch.delenv("KEY_A")
     monkeypatch.delenv("KEY_B")
     with pytest.raises(NoCapacityLeft):
-        Router(conn, ladder=[A, B]).complete("public", public_text=True)
+        Router(conn, ladder=[A, B]).complete("public", sending=Sending.PUBLIC)
 
 
 def test_transport_errors_do_not_end_the_run(conn):
@@ -104,7 +116,7 @@ def test_transport_errors_do_not_end_the_run(conn):
             raise httpx.ConnectError("dns died")
         return "b answered"
 
-    assert router(conn, responder).complete("public", public_text=True) == "b answered"
+    assert router(conn, responder).complete("public", sending=Sending.PUBLIC) == "b answered"
 
 
 @pytest.mark.parametrize("reply", [

@@ -10,6 +10,13 @@ prose: >
   not a thin wrapper, and founders who intend to compete internationally rather than
   only at home.
 
+founder_voice: >
+  I'm from Turkey, or my team is, and we're building something technically hard.
+  Most of our engineers are in Istanbul or Ankara. It's infrastructure or fintech or
+  security, not a thin wrapper on someone else's model. We already have customers,
+  or we're close, and we're not planning to stay a local business. I want to compete
+  with the global players in this space.
+
 stage_max: growth
 cheque: [500_000, 10_000_000]
 

@@ -105,9 +105,23 @@ class Embedder:
         return self.embed_many([text])[0]
 
 
-def thesis_vectors(emb: Embedder, theses: list[Thesis]) -> dict[str, list[float]]:
-    """Embed each thesis once. Cheap enough to redo per run, so no cache to invalidate."""
-    return {t.id: emb.embed(t.prose) for t in theses}
+def thesis_vectors(
+    emb: Embedder, theses: list[Thesis]
+) -> dict[str, list[list[float]]]:
+    """Embed every phrasing of every thesis. A handful of vectors, computed once.
+
+    Each thesis gets one vector per phrasing: the fund's own prose, and the same
+    thesis as a founder would write it. A candidate scores against the best of
+    them, so VC commentary and a founder's own post can both match without either
+    being penalised for using the wrong vocabulary.
+    """
+    return {t.id: emb.embed_many(t.vectors_text()) for t in theses}
+
+
+def best_similarity(vec: list[float], thesis_vecs: list[list[float]]) -> float:
+    """Max over a thesis's phrasings. Max, not mean: matching one framing well is
+    the signal, and averaging would dilute it with the framing that does not apply."""
+    return max((cosine(vec, tv) for tv in thesis_vecs), default=0.0)
 
 
 def score_pending(
@@ -115,10 +129,16 @@ def score_pending(
     emb: Embedder,
     theses: list[Thesis],
     *,
-    batch: int = 32,
+    batch: int = 8,
     limit: int | None = None,
 ) -> dict[str, int]:
-    """Embed and score every candidate that has not been scored yet."""
+    """Embed and score every candidate that has not been scored yet.
+
+    Small batches on purpose. Each one commits, so an interrupted run resumes
+    where it stopped rather than starting over. On a 2-core laptop a batch of 32
+    can sit in flight for minutes, which makes progress invisible and a Ctrl-C
+    expensive. Throughput barely differs; resumability differs a lot.
+    """
     vectors = thesis_vectors(emb, theses)
     by_id = {t.id: t for t in theses}
 
@@ -143,7 +163,7 @@ def score_pending(
                 # A thesis that excludes this outright should not be able to match it.
                 if by_id[tid].excluded(row["raw_text"]):
                     continue
-                s = cosine(vec, tvec)
+                s = best_similarity(vec, tvec)
                 if s > best_score:
                     best_id, best_score = tid, s
 
@@ -168,3 +188,68 @@ def survivors(
            WHERE similarity >= ? ORDER BY similarity DESC LIMIT ?""",
         (threshold, limit),
     ).fetchall()
+
+
+def rescore_similarities(
+    conn: sqlite3.Connection, emb: Embedder, theses: list[Thesis]
+) -> int:
+    """Recompute similarity from stored vectors, without re-embedding anything.
+
+    Candidate vectors do not change when a thesis is reworded or a new phrasing is
+    added; only the comparison does. Re-embedding 565 candidates costs half an hour
+    on this hardware, recomputing cosine over stored blobs costs a second. Anything
+    that edits a thesis should call this, not score_pending.
+    """
+    vectors = thesis_vectors(emb, theses)
+    by_id = {t.id: t for t in theses}
+    rows = conn.execute(
+        "SELECT id, embedding, raw_text FROM candidates WHERE embedding IS NOT NULL"
+    ).fetchall()
+
+    for row in rows:
+        vec = unpack(row["embedding"])
+        best_id, best_score = None, -1.0
+        for tid, tvecs in vectors.items():
+            if by_id[tid].excluded(row["raw_text"]):
+                continue
+            s = best_similarity(vec, tvecs)
+            if s > best_score:
+                best_id, best_score = tid, s
+        conn.execute(
+            "UPDATE candidates SET similarity = ?, thesis_id = ? WHERE id = ?",
+            (best_score, best_id, row["id"]),
+        )
+    conn.commit()
+    return len(rows)
+
+
+def survivors_by_rank(
+    conn: sqlite3.Connection, keep_rate: float = 0.10, floor: float = 0.25
+) -> list[sqlite3.Row]:
+    """Top `keep_rate` of each source, subject to an absolute floor.
+
+    Per source, because sources have different baselines. Measured: Substack reaches
+    0.58 while Hacker News tops out near 0.42, so one global threshold set for
+    Substack would discard every HN candidate, including the first-hand founder posts
+    that are the best signal in the system. Each source competes with itself.
+
+    The floor is the safety net for a run where an entire source is junk: without it,
+    "top 10%" faithfully returns the best 10% of nothing worth having.
+    """
+    out: list[sqlite3.Row] = []
+    for (source,) in conn.execute(
+        "SELECT DISTINCT source FROM candidates WHERE similarity IS NOT NULL"
+    ).fetchall():
+        n = conn.execute(
+            "SELECT COUNT(*) FROM candidates WHERE source = ? AND similarity >= ?",
+            (source, floor),
+        ).fetchone()[0]
+        if not n:
+            continue
+        out.extend(conn.execute(
+            """SELECT * FROM candidates
+               WHERE source = ? AND similarity >= ?
+               ORDER BY similarity DESC LIMIT ?""",
+            (source, floor, max(1, round(n * keep_rate))),
+        ).fetchall())
+    return sorted(out, key=lambda r: r["similarity"], reverse=True)

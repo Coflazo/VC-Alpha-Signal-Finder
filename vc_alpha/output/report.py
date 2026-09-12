@@ -13,7 +13,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from vc_alpha.llm import Router
+from vc_alpha.llm import Router, Sending
 from vc_alpha.theses import Thesis
 
 RESEARCH_PROMPT = """Research this company from the post below and fill in the report.
@@ -49,7 +49,10 @@ def research_prompt(text: str, url: str, thesis: Thesis) -> str:
     )
 
 
-def research(router: Router, row: sqlite3.Row, thesis: Thesis) -> dict:
+def research(
+    router: Router, row: sqlite3.Row, thesis: Thesis,
+    sending: Sending = Sending.PUBLIC,
+) -> dict:
     schema = {
         "type": "object",
         "properties": {f.key: {"type": "string"} for f in thesis.report_fields},
@@ -57,7 +60,7 @@ def research(router: Router, row: sqlite3.Row, thesis: Thesis) -> dict:
     }
     return router.complete(
         research_prompt(row["raw_text"], row["source_url"], thesis),
-        schema=schema, public_text=True,
+        schema=schema, sending=sending,
     )
 
 

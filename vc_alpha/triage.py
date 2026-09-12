@@ -17,7 +17,7 @@ import json
 import logging
 import sqlite3
 
-from vc_alpha.llm import NoCapacityLeft, Router
+from vc_alpha.llm import NoCapacityLeft, Router, Sending
 from vc_alpha.theses import Thesis
 
 log = logging.getLogger(__name__)
@@ -75,16 +75,21 @@ def build_prompt(text: str, thesis: Thesis, max_chars: int = 6000) -> str:
     return PROMPT.format(prose=thesis.prose.strip(), signals=signals, text=text[:max_chars])
 
 
-def triage_one(router: Router, text: str, thesis: Thesis) -> dict:
-    """One candidate. The post is public by definition; the thesis prose is not.
+def triage_one(
+    router: Router, text: str, thesis: Thesis, sending: Sending = Sending.PUBLIC
+) -> dict:
+    """Screen one candidate.
 
-    Note the prose does go into the prompt. That is a deliberate, narrow exception:
-    screening cannot work without it. Funds who object should point the router at a
-    local or paid endpoint, which is a one-value config change.
+    `sending` defaults to PUBLIC because five of six sources are published material,
+    but WhatsApp passes Sending.REDACTED with a fragment from vc_alpha.redact rather
+    than the raw message.
+
+    The thesis prose does go into the prompt. That is a deliberate, narrow exception:
+    screening cannot happen without telling the model what it is screening for. A
+    fund that objects points the router at a local endpoint, which is one config
+    value and no code change.
     """
-    return router.complete(
-        build_prompt(text, thesis), schema=SCHEMA, public_text=True
-    )
+    return router.complete(build_prompt(text, thesis), schema=SCHEMA, sending=sending)
 
 
 def run(
@@ -94,6 +99,7 @@ def run(
     *,
     threshold: float,
     limit: int = 50,
+    sending: Sending = Sending.PUBLIC,
 ) -> dict[str, int]:
     """Triage everything that passed stage 2 and has not been triaged yet."""
     by_id = {t.id: t for t in theses}
@@ -109,7 +115,7 @@ def run(
     for row in rows:
         thesis = by_id.get(row["thesis_id"]) or theses[0]
         try:
-            verdict = triage_one(router, row["raw_text"], thesis)
+            verdict = triage_one(router, row["raw_text"], thesis, sending)
         except NoCapacityLeft:
             # Expected at the end of a day. Stop cleanly; the rest keeps until tomorrow.
             stats["no_capacity"] += 1

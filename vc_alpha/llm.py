@@ -7,10 +7,11 @@ provider SDK or knows a provider's name.
 
 Two rules are enforced here rather than trusted to callers.
 
-Free tiers generally train on what you send them. So `public_text` is a required,
-explicit argument: callers must state that the text was already public before it
-gets sent. Thesis prose, match reasoning and assembled reports never leave the
-machine, because the aggregation is the asset, not the individual public post.
+Free tiers generally train on what you send them, so every caller must classify
+what it is sending. There are three real states, not two: text somebody already
+published, a fragment extracted from private material with names and context
+stripped, and private material itself. The last is refused outright. WhatsApp
+group exports are the reason this is an enum rather than a boolean.
 
 And a provider that has run out is not an error. It is the expected steady state
 at the end of a day, and the ladder handles it.
@@ -25,6 +26,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import date
+from enum import Enum
 from typing import Any
 
 import httpx
@@ -39,7 +41,21 @@ class NoCapacityLeft(RuntimeError):
 
 
 class PrivateTextRefused(ValueError):
-    """Something tried to send text that was not already public."""
+    """Something tried to send private text to a provider that trains on it."""
+
+
+class Sending(Enum):
+    """What kind of text a caller is about to send.
+
+    PUBLIC    somebody already published it: a Reddit post, an HN title.
+    REDACTED  a fragment pulled out of private material by vc_alpha.redact,
+              with senders, phone numbers and surrounding conversation removed.
+    PRIVATE   the raw private material. Never sent anywhere, by anyone.
+    """
+
+    PUBLIC = "public"
+    REDACTED = "redacted"
+    PRIVATE = "private"
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,17 +209,19 @@ class Router:
         return r.json()["choices"][0]["message"]["content"]
 
     def complete(
-        self, prompt: str, *, schema: dict | None = None, public_text: bool
+        self, prompt: str, *, schema: dict | None = None, sending: Sending
     ) -> dict[str, Any] | str:
         """Run a prompt down the ladder until one provider answers.
 
-        `public_text` is not a formality. Pass True only when everything in the
-        prompt was already published by someone else.
+        `sending` is not a formality. A WhatsApp message classified PUBLIC because
+        it was convenient is how private conversation ends up in someone's training
+        set, so the classification belongs with the caller who knows the source.
         """
-        if not public_text:
+        if sending is Sending.PRIVATE:
             raise PrivateTextRefused(
-                "refusing to send non-public text to a free provider that may train "
-                "on it; run this against a local or paid endpoint instead"
+                "refusing to send private text to a provider that may train on it. "
+                "Extract a fragment with vc_alpha.redact first, or point the router "
+                "at a local endpoint."
             )
 
         tried = []

@@ -11,6 +11,13 @@ prose: >
   agtech and biotech. Cheque size is 100K to 1M dollars. The United States has to be
   on the company's horizon, whether or not they are there yet.
 
+founder_voice: >
+  I moved countries a few years ago and I'm building something I needed at my last
+  job. It uses AI at the core, not bolted on, and it sells to other companies.
+  We have a prototype and a couple of design partners. I'm technical and I'm writing
+  most of the code myself. We're small, pre-revenue or close to it, and I want this
+  to work in the US eventually, not just where I live now.
+
 stage_max: seed
 cheque: [100_000, 1_000_000]
 

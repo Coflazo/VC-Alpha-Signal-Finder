@@ -35,6 +35,11 @@ class Thesis:
     id: str
     name: str
     prose: str
+    # The same thesis written as a founder would describe their own company.
+    # Measured: fund-language prose matches VC newsletter copy far better than it
+    # matches "I built a tool that reconciles invoices", which is backwards for a
+    # product that exists to find founders. Both get embedded; best match wins.
+    founder_voice: str = ""
     url: str | None = None
     stage_max: str | None = None
     cheque: list[int] = field(default_factory=list)
@@ -42,6 +47,10 @@ class Thesis:
     exclude: list[str] = field(default_factory=list)
     hard_signals: list[str] = field(default_factory=list)
     report_fields: list[ReportField] = field(default_factory=list)
+
+    def vectors_text(self) -> list[str]:
+        """Everything this thesis should be matched against, one string per vector."""
+        return [v for v in (self.prose, self.founder_voice) if v and v.strip()]
 
     def excluded(self, text: str) -> bool:
         """Cheap string gate, run before embedding.
