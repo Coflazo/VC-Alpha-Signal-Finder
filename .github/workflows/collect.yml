@@ -13,7 +13,7 @@ on:
       source:
         description: Source to collect
         type: choice
-        options: [all, substack, hackernews, github]
+        options: [all, hackernews, github]
         default: all
       visits:
         description: Nodes to visit per source
@@ -21,6 +21,10 @@ on:
 
 permissions:
   contents: read
+  # Restoring the previous run's database artifact reads the Actions API.
+  # Without this the download fails with "Resource not accessible by
+  # integration" and every run silently starts from an empty database.
+  actions: read
 
 concurrency:
   group: pipeline-db          # collect, score and report share one database
@@ -56,9 +60,12 @@ jobs:
           set -euo pipefail
           chosen='${{ inputs.source || 'all' }}'
           visits='${{ inputs.visits || '10' }}'
-          # WhatsApp is deliberately absent. Private exports do not belong on a
-          # shared runner, and they live only on the machine that imported them.
-          for src in substack hackernews github; do
+          # Substack and WhatsApp are deliberately absent, for different reasons.
+          # Substack returns 403 to GitHub's datacenter IP ranges; verified that
+          # both a bot and a browser User-Agent get 200 from a home connection, so
+          # it is the address and no header fixes it. WhatsApp is private data and
+          # does not belong on a shared runner. Both run from the local app.
+          for src in hackernews github; do
             if [ "$chosen" = "all" ] || [ "$chosen" = "$src" ]; then
               echo "::group::$src"
               uv run python -m vc_alpha.collect --source "$src" --visits "$visits"

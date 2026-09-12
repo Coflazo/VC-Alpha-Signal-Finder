@@ -11,6 +11,10 @@ on:
 
 permissions:
   contents: read
+  # Restoring the previous run's database artifact reads the Actions API.
+  # Without this the download fails with "Resource not accessible by
+  # integration" and every run silently starts from an empty database.
+  actions: read
 
 concurrency:
   group: pipeline-db
