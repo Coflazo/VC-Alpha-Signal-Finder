@@ -46,8 +46,21 @@ it is a statement about arithmetic rather than about taste.
 
 ## Assumptions, and where they fail
 
-- Signals iid conditional on V. Funds using the same data vendor have correlated
-  errors, which makes the true curse *worse* than this estimate, not better.
+- **Correlation between funds' errors reduces the curse rather than worsening it.**
+  An earlier version of this file claimed the opposite and was wrong. Decompose
+
+      ε_i = √ρ · U + √(1−ρ) · W_i
+
+  The common shock U moves every fund together, so it confers no advantage in
+  winning and the posterior already absorbs it. The curse comes entirely from being
+  the fund with the largest *idiosyncratic* W_i, whose scale is √(1−ρ):
+
+      bias(N, ρ) = β · σ_e · √(1−ρ) · E[max of N standard normals]
+
+  At ρ = 1 every fund sees the same thing, winning is random, and there is no curse.
+  Practically: competing against funds that all subscribe to the same data vendor is
+  *less* dangerous than competing against funds with genuinely independent views,
+  which is the opposite of the intuition.
 - The founder picks the highest offer. Often they pick on reputation or speed, and
   for a fund that reliably wins on something other than price the curse is smaller.
 - Normal errors. The √(2 ln N) growth is specific to the normal tail; heavier
@@ -117,6 +130,25 @@ SOURCE_AUDIENCE = {
 
 DEFAULT_AUDIENCE = 100
 
+# How correlated rival funds' errors are, per source. Everyone reading the same
+# Hacker News thread forms a similar view from identical words, so their errors
+# share a large common component. Two funds hearing about a company through
+# different private groups are forming genuinely independent views.
+#
+# Higher correlation means a *smaller* curse, which partially offsets the larger
+# audience on public sources. It does not come close to cancelling it.
+SOURCE_CORRELATION = {
+    "whatsapp": 0.10,
+    "inbound": 0.20,
+    "linkedin": 0.35,
+    "reddit": 0.45,
+    "substack": 0.50,
+    "github": 0.50,
+    "hackernews": 0.60,
+}
+
+DEFAULT_CORRELATION = 0.4
+
 
 @dataclass(frozen=True, slots=True)
 class CurseModel:
@@ -138,25 +170,41 @@ class CurseModel:
         denom = self.sigma_v ** 2 + self.sigma_e ** 2
         return (self.sigma_v ** 2) / denom if denom else 0.0
 
-    def penalty(self, audience: int) -> float:
-        """Expected overvaluation from winning against `audience` competitors."""
-        return self.beta * self.sigma_e * expected_max_normal(max(1, audience))
+    def penalty(self, audience: int, rho: float = 0.0) -> float:
+        """Expected overvaluation from winning against `audience` competitors.
+
+        rho is the correlation between rival funds' errors. Only the idiosyncratic
+        part of the error, scaled √(1−ρ), can mislead the winner.
+        """
+        rho = min(max(rho, 0.0), 1.0)
+        idiosyncratic = math.sqrt(1.0 - rho)
+        return (self.beta * self.sigma_e * idiosyncratic
+                * expected_max_normal(max(1, audience)))
 
     def adjust(self, score: float, source: str | None = None,
-               audience: int | None = None) -> float:
+               audience: int | None = None, rho: float | None = None) -> float:
         """Score net of the winner's curse. Never below zero."""
+        key = source or ""
         n = audience if audience is not None else SOURCE_AUDIENCE.get(
-            source or "", DEFAULT_AUDIENCE)
-        return max(0.0, score - self.penalty(n))
+            key, DEFAULT_AUDIENCE)
+        r = rho if rho is not None else SOURCE_CORRELATION.get(
+            key, DEFAULT_CORRELATION)
+        return max(0.0, score - self.penalty(n, r))
 
 
 def exclusivity_edge(model: CurseModel, private: str, public: str) -> float:
     """How much higher a public signal must score to match a private one.
 
-    The number that justifies reading private communities at all.
+    The number that justifies reading private communities at all. Uses each
+    source's own correlation, so the public source gets credit for its rivals
+    thinking alike — and still loses by a wide margin.
     """
-    return model.penalty(SOURCE_AUDIENCE.get(public, DEFAULT_AUDIENCE)) - \
-           model.penalty(SOURCE_AUDIENCE.get(private, DEFAULT_AUDIENCE))
+    def pen(src: str) -> float:
+        return model.penalty(
+            SOURCE_AUDIENCE.get(src, DEFAULT_AUDIENCE),
+            SOURCE_CORRELATION.get(src, DEFAULT_CORRELATION),
+        )
+    return pen(public) - pen(private)
 
 
 def break_even_audience(model: CurseModel, edge: float) -> int:

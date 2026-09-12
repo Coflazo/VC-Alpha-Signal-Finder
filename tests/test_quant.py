@@ -63,9 +63,15 @@ def test_a_private_signal_beats_an_equally_scored_public_one():
 
 
 def test_the_edge_is_material_not_cosmetic():
-    """If the correction were 0.01 it would not be worth modelling."""
+    """If the correction were 0.01 it would not be worth modelling.
+
+    This asserted > 0.15 before correlation was modelled. Giving public sources
+    credit for their rivals forming similar views from identical words legitimately
+    shrank the edge to roughly 0.10, which is still a tenth of the score range and
+    still decisive between two otherwise equal candidates.
+    """
     edge = exclusivity_edge(CurseModel(), "whatsapp", "hackernews")
-    assert edge > 0.15, "a public lead must score materially higher to compete"
+    assert edge > 0.08, "a public lead must score materially higher to compete"
 
 
 def test_adjustment_never_goes_negative():
@@ -216,3 +222,137 @@ def test_screening_cannot_help_when_the_ranking_is_worthless():
     flat = QualityCurve(p_top=0.05, decay=0.0)
     v = value_of_screening(20, 1000, flat, alpha=1.8)
     assert v["lift"] == pytest.approx(0.0, abs=1e-9)
+
+
+# --- correlation in the auction model ----------------------------------------
+
+
+def test_correlation_reduces_the_curse_it_does_not_worsen_it():
+    """An earlier version of auction.py claimed the opposite in a comment. The
+    common shock moves every fund together and confers no advantage in winning;
+    only the idiosyncratic part, scaled √(1−ρ), can mislead the winner."""
+    m = CurseModel()
+    assert m.penalty(50, rho=0.0) > m.penalty(50, rho=0.5) > m.penalty(50, rho=0.9)
+
+
+def test_perfect_correlation_removes_the_curse_entirely():
+    """If every fund sees exactly the same thing, winning is random."""
+    assert CurseModel().penalty(500, rho=1.0) == 0.0
+
+
+@pytest.mark.parametrize("rho", [0.0, 0.3, 0.6, 0.9])
+def test_sqrt_one_minus_rho_scaling_matches_simulation(rho):
+    """Simulate equicorrelated errors and measure the winner's idiosyncratic excess."""
+    random.seed(int(rho * 100) + 1)
+    n = 25
+    excess = []
+    for _ in range(8000):
+        u = random.gauss(0, 1)
+        eps = [math.sqrt(rho) * u + math.sqrt(1 - rho) * random.gauss(0, 1)
+               for _ in range(n)]
+        excess.append(max(eps) - math.sqrt(rho) * u)
+    predicted = math.sqrt(1 - rho) * expected_max_normal(n)
+    assert predicted == pytest.approx(statistics.fmean(excess), abs=0.03)
+
+
+def test_private_still_beats_public_after_correlation_credit():
+    """Public sources get credit for their rivals thinking alike, and still lose."""
+    assert exclusivity_edge(CurseModel(), "whatsapp", "hackernews") > 0.05
+
+
+# --- adverse selection -------------------------------------------------------
+
+
+@pytest.mark.parametrize("q", [0.1, 0.3, 0.5, 0.8])
+def test_inverse_mills_matches_truncated_normal_simulation(q):
+    """E[X | X < c] = −λ(c) for a standard normal."""
+    from vc_alpha.quant.selection import _probit, inverse_mills
+    random.seed(int(q * 100) + 2)
+    c = _probit(q)
+    xs = [x for x in (random.gauss(0, 1) for _ in range(150_000)) if x < c]
+    assert -inverse_mills(c) == pytest.approx(statistics.fmean(xs), abs=0.02)
+
+
+def test_a_rare_channel_is_more_sharply_selected():
+    """Small share means sharp truncation. The first version of the table inverted
+    this, assigning cold inbound the smallest share to try to give it the smallest
+    penalty, which produces exactly the opposite."""
+    from vc_alpha.quant.selection import SelectionModel
+    m = SelectionModel()
+    assert m.penalty(0.20) > m.penalty(0.40) > m.penalty(0.60)
+
+
+def test_a_channel_used_by_half_says_nothing():
+    from vc_alpha.quant.selection import NEUTRAL_SHARE, SelectionModel
+    assert SelectionModel().penalty(NEUTRAL_SHARE) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_a_widely_used_channel_earns_a_small_bonus():
+    """Above neutral, presence is mild positive evidence rather than a penalty."""
+    from vc_alpha.quant.selection import SelectionModel
+    assert SelectionModel().penalty(0.70) < 0
+
+
+def test_the_selection_correction_stays_modest():
+    """It rests on an assumed separating equilibrium, so it must move a ranking at
+    the margin and never dominate it."""
+    from vc_alpha.quant.selection import CHANNEL_SHARE, SelectionModel
+    m = SelectionModel()
+    assert max(abs(m.penalty(q)) for q in CHANNEL_SHARE.values()) < 0.10
+
+
+# --- deployment thresholds ---------------------------------------------------
+
+
+def test_threshold_on_the_last_arrival_is_zero():
+    """A slot that expires unused is worth nothing, so take anything positive."""
+    from vc_alpha.quant.deployment import DeploymentPolicy
+    assert DeploymentPolicy().threshold(1, 5) == 0.0
+
+
+def test_two_arrivals_one_slot_matches_the_closed_form():
+    """τ(2,1) = E[X], which is 0.5 for uniform[0,1]. An exact check on the DP."""
+    from vc_alpha.quant.deployment import DeploymentPolicy
+    assert DeploymentPolicy().threshold(2, 1) == pytest.approx(0.5, abs=0.02)
+
+
+def test_the_bar_falls_as_the_window_closes():
+    from vc_alpha.quant.deployment import DeploymentPolicy
+    p = DeploymentPolicy()
+    bars = [p.threshold(k, 10) for k in (100, 50, 20, 5, 1)]
+    assert bars == sorted(bars, reverse=True)
+
+
+def test_the_bar_falls_as_slots_accumulate():
+    from vc_alpha.quant.deployment import DeploymentPolicy
+    p = DeploymentPolicy()
+    bars = [p.threshold(100, m) for m in (1, 5, 10, 25, 50)]
+    assert bars == sorted(bars, reverse=True)
+
+
+def test_more_deal_flow_raises_the_bar():
+    """Counterintuitive but correct: better sourcing makes each slot more valuable
+    to hold, so the fund should become *more* selective, not less."""
+    from vc_alpha.quant.deployment import DeploymentPolicy
+    p = DeploymentPolicy()
+    assert p.threshold(200, 10) > p.threshold(50, 10)
+
+
+def test_no_scarcity_means_take_everything():
+    """With at least as many slots as arrivals there is nothing to ration."""
+    from vc_alpha.quant.deployment import DeploymentPolicy
+    assert DeploymentPolicy().threshold(5, 10) == 0.0
+
+
+def test_recommendation_is_ordered_over_the_fund_life():
+    from vc_alpha.quant.deployment import recommend
+    r = recommend([i / 100 for i in range(101)], slots_left=14, months_left=22,
+                  deals_per_month=8)
+    assert r["threshold_now"] > r["threshold_midway"] > r["threshold_final"]
+
+
+def test_the_distribution_comes_from_observed_scores():
+    """The bar is only meaningful on the same scale as the scores it gates."""
+    from vc_alpha.quant.deployment import ScoreDistribution
+    d = ScoreDistribution.from_scores([0.9] * 100)
+    assert d.expectation(lambda x: x) == pytest.approx(0.9, abs=0.02)
