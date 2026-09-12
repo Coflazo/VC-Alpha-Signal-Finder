@@ -12,6 +12,7 @@ makes it affordable to run over everything.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import struct
 
@@ -22,7 +23,9 @@ from vc_alpha.theses import Thesis
 log = logging.getLogger(__name__)
 
 OLLAMA = "http://localhost:11434"
-MODEL = "qwen3-embedding:0.6b"
+MODEL = "qwen3-embedding:0.6b"          # local fallback
+GEMINI_MODEL = "text-embedding-004"     # free tier, 1500 req/day
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 TIMEOUT = httpx.Timeout(120.0)
 
 # Starting point only. Calibrate against labelled data before trusting it.
@@ -49,30 +52,57 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 
 class Embedder:
+    """Embeddings from whichever free provider is configured.
+
+    Gemini first when a key exists: 1,500 requests a day free, no card, and on
+    this hardware roughly two orders of magnitude faster than local. Ollama is the
+    fallback, and the right choice for a fund that wants nothing leaving the
+    building at all.
+    """
+
     def __init__(self, model: str = MODEL, base: str = OLLAMA):
-        self.model = model
-        self._client = httpx.Client(base_url=base, timeout=TIMEOUT)
+        self.gemini_key = os.environ.get("GEMINI_API_KEY")
+        self.model = GEMINI_MODEL if self.gemini_key else model
+        self.provider = "gemini" if self.gemini_key else "ollama"
+        self._client = httpx.Client(timeout=TIMEOUT)
+        self._base = base
 
     def available(self) -> bool:
+        if self.gemini_key:
+            return True
         try:
-            return self._client.get("/api/tags").status_code == 200
+            return self._client.get(f"{self._base}/api/tags").status_code == 200
         except httpx.HTTPError:
             return False
 
-    def embed(self, text: str) -> list[float]:
+    def _gemini(self, texts: list[str]) -> list[list[float]]:
+        # Batch endpoint, so a page of candidates costs one request against the
+        # daily allowance rather than one per item.
         r = self._client.post(
-            "/api/embed", json={"model": self.model, "input": text[:MAX_CHARS]}
+            f"{GEMINI_BASE}/models/{GEMINI_MODEL}:batchEmbedContents",
+            params={"key": self.gemini_key},
+            json={"requests": [
+                {"model": f"models/{GEMINI_MODEL}",
+                 "content": {"parts": [{"text": t[:MAX_CHARS]}]}}
+                for t in texts
+            ]},
         )
         r.raise_for_status()
-        return r.json()["embeddings"][0]
+        return [e["values"] for e in r.json()["embeddings"]]
 
-    def embed_many(self, texts: list[str]) -> list[list[float]]:
+    def _ollama(self, texts: list[str]) -> list[list[float]]:
         r = self._client.post(
-            "/api/embed",
+            f"{self._base}/api/embed",
             json={"model": self.model, "input": [t[:MAX_CHARS] for t in texts]},
         )
         r.raise_for_status()
         return r.json()["embeddings"]
+
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        return self._gemini(texts) if self.gemini_key else self._ollama(texts)
+
+    def embed(self, text: str) -> list[float]:
+        return self.embed_many([text])[0]
 
 
 def thesis_vectors(emb: Embedder, theses: list[Thesis]) -> dict[str, list[float]]:
