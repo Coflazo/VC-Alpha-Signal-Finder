@@ -1,0 +1,25 @@
+[project]
+name = "vc-alpha-signal-finder"
+version = "0.1.0"
+description = "Finds early-stage startups before they reach the places VCs already watch"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# installed only when the stages that need them are built
+enrich = ["scrapling>=0.3", "crawl4ai>=0.4"]
+reddit = ["praw>=7.7"]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vc_alpha"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
