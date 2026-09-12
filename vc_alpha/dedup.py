@@ -57,13 +57,35 @@ def install(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def bands_for(threshold: float, perms: int = PERMS) -> int:
+    """Band count whose LSH threshold is closest to the one asked for.
+
+    The banding decides which pairs are ever *compared*; the threshold only decides
+    which compared pairs are *kept*. Leaving banding fixed while the caller lowers
+    the threshold produces a parameter that silently does not work: the pair is
+    filtered correctly but never surfaced in the first place.
+
+    The approximate LSH threshold for b bands of r rows is (1/b)^(1/r), so this
+    picks the divisor of `perms` whose value lands nearest the request.
+    """
+    divisors = [b for b in range(1, perms + 1) if perms % b == 0]
+    return min(divisors, key=lambda b: abs((1.0 / b) ** (b / perms) - threshold))
+
+
 def find_duplicates(texts: dict[str, str], threshold: float = THRESHOLD,
-                    bands: int = BANDS, perms: int = PERMS) -> dict[str, tuple[str, float]]:
+                    bands: int | None = None, perms: int = PERMS
+                    ) -> dict[str, tuple[str, float]]:
     """Map each duplicate id to the id it duplicates, and the measured similarity.
 
     The first occurrence in iteration order is treated as the original, so results
     are stable for a stable input order.
+
+    LSH is probabilistic: a pair above the threshold can still be missed if it
+    happens to collide in no band. Band count is derived from the threshold so the
+    miss rate stays low for the similarity actually being asked about.
     """
+    if bands is None:
+        bands = bands_for(threshold, perms)
     sigs = {cid: minhash(text or "", perms, SHINGLE) for cid, text in texts.items()}
 
     # Bucket by band hash. Only ids sharing a bucket are ever compared.

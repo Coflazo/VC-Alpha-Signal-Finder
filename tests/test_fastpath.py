@@ -141,7 +141,15 @@ def test_a_paraphrase_is_not_caught_and_that_is_correct():
 
 
 def test_threshold_is_respected():
+    """Banding is derived from the threshold. Without that the threshold silently
+    does not work at low values: the pair is filtered correctly but LSH never
+    surfaces it to be compared in the first place."""
     texts = {"a": "one two three four five six seven eight",
              "b": "one two three four five six seven nine"}
     assert find_duplicates(texts, threshold=0.99) == {}
     assert "b" in find_duplicates(texts, threshold=0.3)
+
+
+def test_band_count_tracks_the_requested_threshold():
+    from vc_alpha.dedup import bands_for
+    assert bands_for(0.3) > bands_for(0.9), "a looser threshold needs more bands"
