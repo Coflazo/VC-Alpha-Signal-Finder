@@ -424,6 +424,98 @@ SETUP.md                   exactly what you need to supply, all of it free
 docs/                      PLAN, COLLECTORS, TOOLCHAIN
 ```
 
+## The quantitative models
+
+Four places used a plausible constant where the problem has a known structure.
+Each model states its assumptions and is tested against a closed form or Monte
+Carlo, because the only reason to put mathematics here is that it is right.
+
+### Winner's curse — what a signal is worth after accounting for who else sees it
+
+Deal allocation is a **common-value auction**: every fund observes
+*s<sub>i</sub> = V + ε<sub>i</sub>* and the founder takes the best offer. Conditional
+on winning, your signal was the maximum of N noisy draws, so it was biased upward:
+
+```
+bias(N, ρ) = β · σ_e · √(1−ρ) · E[max of N standard normals]
+```
+
+| Source | Audience | ρ | Penalty |
+|---|---|---|---|
+| WhatsApp | 3 | 0.10 | 0.089 |
+| Inbound | 8 | 0.20 | 0.140 |
+| Hacker News | 200 | 0.60 | 0.192 |
+
+A public lead must score about **0.10 higher** to match a private one. That is the
+arithmetic reason to read private communities, and it is a statement about order
+statistics rather than taste.
+
+Correlation between rivals' errors **reduces** the curse: the common shock moves
+everyone together and confers no advantage in winning, so only the idiosyncratic
+part, scaled √(1−ρ), can mislead the winner. At ρ = 1 there is no curse at all.
+
+The textbook asymptotic √(2 ln N) was tried and rejected — against 40,000-trial
+Monte Carlo it errs by up to 0.25 and is worst at small N, giving 0.597 against a
+true 0.846 at N = 3. Every audience here is 3 to 200, so it is wrong exactly where
+the product operates. The integral is computed directly instead.
+
+### Adverse selection — which channel a founder is in is itself a signal
+
+A founder who can raise through introductions generally does, so open channels are
+drawn from a truncated part of the distribution, with the shortfall given by the
+inverse Mills ratio λ(z) = φ(z)/Φ(z).
+
+Cold inbound scoring as adversely selected is not a modelling artefact: it is the
+warm-introduction doctrine stated as arithmetic. The correction is capped below
+0.10 because it rests on a separating equilibrium that founders who build in public
+on purpose simply break.
+
+### Value of information — the review queue was sorted wrong
+
+With payoff R, loss L and threshold τ = L/(R+L):
+
+```
+EVPI(p) = pR        for p < τ
+          (1−p)L    for p ≥ τ
+```
+
+A tent peaking **exactly at the decision boundary**, zero at both ends. Reviewing
+your top candidate teaches you nothing — you would pursue it anyway. The queue
+orders by expected value of sample information instead. The most informative score
+to review measures 0.57, whose posterior is 0.0327 against a threshold of 0.0323.
+
+### Tails and portfolio size — where the usual tools stop working
+
+Venture multiples are Pareto with α ≈ 1.5–2.5. **Below α = 2 the variance does not
+exist**, so Sharpe ratios, mean-variance optimisation and normal confidence
+intervals are undefined rather than merely inaccurate. Tail index comes from the
+Hill estimator over the upper order statistics.
+
+Expected fund-returners go as *p̄ · n<sup>1−α</sup>*, so with α > 1 the mathematics
+favours **concentration**, and adding ranking noise does not flip it. Real funds
+hold 20 to 40 positions because a seed company can only absorb so much capital —
+a capacity constraint, not portfolio theory. The useful question is therefore what
+screening is worth at the size a fund must hold anyway: at n = 20, perfect
+screening lifts P(fund returned) by **+265%** over none.
+
+### Deployment — the acceptance bar should fall as the fund ages
+
+With *m* slots and *k* expected arrivals, this is the sequential assignment problem
+of Derman, Lieberman and Ross:
+
+```
+V(k, m) = E[ max( X + V(k−1, m−1),  V(k−1, m) ) ]
+accept when  X ≥ V(k−1, m) − V(k−1, m−1)
+```
+
+The threshold is the option value of holding a slot. It falls as the window closes,
+falls as slots accumulate, and **rises with deal flow** — better sourcing should
+make a fund *more* selective, not less. Computed live from the pipeline's own score
+distribution and shown on the dashboard.
+
+Not the 1/e secretary rule, which is the no-information variant where only relative
+ranks are observed.
+
 ## The app
 
 ```bash
