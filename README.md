@@ -1,10 +1,16 @@
 # VC Alpha Signal Finder
 
-Finds early-stage startups before they reach the places every other fund is already watching, and costs nothing to run.
+An evaluation engine for early-stage venture, that costs nothing to run.
 
-Give it a VC thesis written in plain English. It reads Hacker News, Substack, GitHub, Reddit and LinkedIn looking for founders and projects that match, scores each one, researches the survivors properly, and writes ranked results into a Google Sheet using the exact report format the fund asked for.
+Give it a thesis written in plain English. It reads Hacker News, Substack, GitHub, Reddit, LinkedIn, WhatsApp exports and your own inbound, assembles what it finds into founder and company dossiers, scores each against your thesis with the evidence attached, and writes ranked results into a Google Sheet in the format your fund actually asked for.
 
-**Status:** working spine. Three sources collect live, 565 candidates and 439 graph nodes in the database, 22 tests passing, zero credentials and zero cost so far. Triage, research and output are next.
+**Status:** working end to end. Six sources, 846 candidates, 1,076 entity mentions, 139 tests passing. Zero credentials and zero cost so far.
+
+### Why an evaluation engine and not another sourcing tool
+
+From a 2026 review of the deal-sourcing market: *"Most venture capital firms do not lack access to companies. They lack the analyst bandwidth to evaluate them systematically. The bottleneck these tools collectively do not solve is evaluation."* A $200M fund takes 3,000 inbound enquiries a year and closes ten.
+
+Harmonic and Specter are enterprise-priced, track growth velocity and team pattern-matching, and still leave that gap. Competing on "find companies sooner" means losing to funded data pipelines. Competing on "decide faster, with evidence" is open, and that is what this is built for — which is also why it takes your own inbound, not only what it scrapes.
 
 ---
 
@@ -27,17 +33,23 @@ The reason nobody does this cheaply is that the signal-to-noise ratio is brutal.
 Five stages. Cost per item rises at every step, and volume falls faster.
 
 ```
-                                                 cost/item    typical survivors
-1. COLLECT    graph-walking scrapers                    ~0       100,000/week
+                                                    cost/item   survivors
+1. COLLECT    graph-walking sources + your inbound         ~0    100,000/wk
                      |
-2. FILTER     embed, cosine against thesis vectors     ~0ms         ~5,000
+2. FILTER     cheap predicates: age, job ads, questions   ~µs       ~93,000
                      |
-3. TRIAGE     free-tier LLM, structured output         ~1 call        ~200
+3. EMBED      cosine against thesis + founder-voice       ~ms        ~5,000
                      |
-4. RESEARCH   deep multi-source investigation       ~20 calls          ~20
+4. TRIAGE     six weighted signals, each with a quote  ~1 call         ~200
                      |
-5. WRITE      ranked rows in the fund's format           —            ~20
+5. RESOLVE    mentions collapse into founders/companies    ~0          ~120
+                     |
+6. WRITE      ranked dossiers in the fund's format          —          ~20
 ```
+
+Filtering sits **before** embedding, not after. Scoring is the expensive stage, so
+dropping the ineligible first is the cheapest win available — a rule taken from the
+six-stage ranking pattern popularised by xAI's open-sourced For You algorithm.
 
 The numbers are illustrative, not measured; the shape is the point. **Stage 2 does the real work.** Embedding a post costs milliseconds and no tokens, and it discards the overwhelming majority of what was collected. Everything after it operates on a set small enough to afford.
 
@@ -57,22 +69,46 @@ Sources are walked as graphs, not scraped as lists. See [The frontier](#the-fron
 
 **The threshold is the most consequential number in the system.** A candidate dropped here is never seen again by any later stage. Too high and real signal dies where nothing can rescue it; too low and stage 3 drowns and burns the daily free allowance. It currently sits at 0.35, which is a guess, and calibrating it against hand-labelled data is the single highest-leverage task outstanding.
 
-### Stage 3 — Triage
+### Stage 4 — Triage, as six separate questions
 
-A free-tier LLM answers a structured question per candidate, including the thesis's `hard_signals` explicitly rather than hoping they are inferred.
+One "relevance" score conflates things that are genuinely different: a post can be a
+real company that does not fit this fund, or a perfect fit that is five years too
+late. So the model scores each independently, and each fund holds its own weights.
 
-```json
-{
-  "is_startup": true,
-  "stage": "pre-seed",
-  "thesis_match": 0.72,
-  "founder_signal": true,
-  "reasoning": "Author left an infrastructure job to build this, has a prototype, no funding mentioned.",
-  "confidence": 0.81
-}
-```
+| Signal | Question |
+|---|---|
+| `is_building` | Is a real company being built, rather than discussed? |
+| `thesis_fit` | Does it match this fund's thesis? |
+| `founder_quality` | Relevant experience, prior shipped work, felt the problem? |
+| `timing` | Raising, or about to? |
+| `reachable` | Is there a route to them? |
+| `too_late` | Already raised past this stage? *(subtracts)* |
 
-Confidence at or above 0.7 is accepted. Below that it escalates to the next provider on the ladder. Still uncertain means a human looks, rather than the system guessing.
+**Behaviour changes by editing numbers in a YAML file.** Nothing is retrained and no
+fund's tuning affects another's. Measured on the same two candidates: 212, which
+demands demonstrated traction, rates an idea-stage company 0.500; e2vc, which invests
+pre-product, rates it 0.675.
+
+Every signal must return the verbatim quote behind it, and **quotes are checked
+against the source text**. A fabricated quote is worse than none, because it looks
+like evidence and gets trusted instead of checked. Measured on real local-model
+output: 11% fabrication caught and dropped.
+
+### Stage 5 — Dossiers, not posts
+
+Team is the strongest early-stage predictor: 95% of 885 institutional VCs called it
+essential, and relevant prior experience and shared work history are what separate
+top performers. So the unit that gets ranked is the **person or company**, assembled
+from every mention across every source.
+
+A founder on Hacker News, in a Substack piece and in a WhatsApp group is one dossier
+with three pieces of evidence. Corroboration across independent sources raises the
+score, saturating at 1.25 so a prolific poster cannot outrank a good company.
+
+Resolution merges on identifiers, flags name-only matches for a human, and **never
+merges two things carrying conflicting identifiers** — Acme Security and Acme
+Analytics stay apart. A wrong merge silently corrupts a dossier a partner then acts
+on; a duplicate is merely untidy.
 
 ### Stage 4 — Research
 
@@ -134,8 +170,27 @@ Discovery suggestions are ranked by **measured** hit rate. A model can explain w
 | **Hacker News** | `hn.algolia.com/api/v1/search_by_date` | none | The best first-hand source. A Show HN post is a founder describing their own work before any press exists. |
 | **Substack** | `/api/v1/archive`, `/api/v1/recommendations/from/{id}` | none | Public archive only. Custom domains 301 away from `*.substack.com`. |
 | **GitHub** | `/search/repositories`, `/orgs/{org}/repos` | optional | Works anonymously; reuses the `gh` CLI token for a higher limit if present, never prompts. |
-| **Reddit** | PRAW streaming | **OAuth required** | Public JSON returns 403 and RSS returns an empty body, so there is no anonymous path. Free app registration takes two minutes. |
-| **LinkedIn** | Scrapling stealth fetch | session cookie | Highest risk. Runs from a home IP, never a cloud server. |
+| **Reddit** | PRAW | **OAuth required** | Public JSON returns 403 and RSS returns an empty body, so there is no anonymous path. Free app, two minutes. |
+| **WhatsApp** | export files | none | Your own group exports. Nothing leaves the machine. |
+| **Inbound** | `.eml` / CSV folder | none | Your own deal flow. The bottleneck the research identified. |
+| **LinkedIn** | Scrapling stealth | session cookie | Highest risk. Home IP only, 40/day, stops on first challenge. |
+
+### Where each source runs
+
+Three cannot run on a shared runner, for different reasons, so the local app is the
+product rather than a viewer bolted onto a pipeline elsewhere.
+
+| Runs in CI | Local only |
+|---|---|
+| Hacker News, GitHub, Reddit | Substack (403s datacenter IPs), WhatsApp (private), Inbound (private), LinkedIn (ban risk) |
+
+### Warm paths
+
+For any dossier: who do we already know who is near this person — a shared WhatsApp
+group, the same subreddit, the same GitHub org. Harmonic and Specter cannot do this,
+because it needs membership in your own communities. Computed locally, never
+transmitted, and stated as an observation ("is in your Founders TR group") rather
+than a claimed relationship.
 
 Live sample from Hacker News, showing the signal is genuinely first-hand:
 
@@ -347,20 +402,37 @@ Written down so they do not get decided by accident.
 ```
 vc_alpha/
 ├── db.py                  schema, retention, forget_author
+├── filters.py             cheap predicates, run before embedding
 ├── frontier.py            score-gated graph expansion, shared by all sources
-├── theses.py              thesis configs and report templates
-├── llm.py                 free-tier provider ladder, budgets, privacy guard
-├── collect.py             collection CLI
-├── score_all.py           stage 2 CLI
-├── collectors/
-│   ├── base.py            CandidateRecord, Collector protocol
-│   ├── substack.py        archive + recommendation graph
-│   ├── hackernews.py      Algolia search, query → author expansion
-│   └── github.py          repo search, query → org expansion
-└── enrich/embed.py        embedding and cosine scoring
+├── theses.py              thesis prose, founder voice, weights, report fields
+├── signals.py             the six signals and per-fund weighting
+├── entities.py            people and companies, resolution rules
+├── extract.py             mentions from URLs, orgs and authors — no model calls
+├── founders.py            entity scoring, corroboration, quote verification
+├── warmpath.py            who you already know who is near this person
+├── llm.py                 free-tier ladder, budgets, privacy guard
+├── redact.py              fragment extraction for private sources
+├── triage.py  score.py  pipeline.py  calibrate.py
+├── collectors/            substack, hackernews, github, whatsapp, inbound,
+│                          reddit, linkedin — one protocol, seven sources
+├── enrich/embed.py        multi-vector matching, rank gating
+└── app/                   FastAPI + one page: dashboard, dossiers, review,
+                           reports, sheet, setup
 
-config/theses/*.yaml       the five funds
-docs/PLAN.md               detailed design decisions
-docs/COLLECTORS.md         Reddit and LinkedIn collector designs
-docs/TOOLCHAIN.md          every skill, plugin and model, with sources
+config/theses/*.yaml       five real funds, each with its own weights and report
+SETUP.md                   exactly what you need to supply, all of it free
+docs/                      PLAN, COLLECTORS, TOOLCHAIN
 ```
+
+## The app
+
+```bash
+uv run vc-alpha            # http://127.0.0.1:8420
+```
+
+Six screens. **Dashboard** with corpus counts and run controls. **Dossiers**, where
+each founder shows why they scored what they scored, with the quote behind every
+signal and a link to where it was said. **Review**, two buttons, which is what turns
+the stage-2 threshold from a guess into a measured number. **Reports** per fund in
+that fund's columns. **Sheet**, editable in place and written straight back.
+**Setup**, which lists exactly what is still missing.
