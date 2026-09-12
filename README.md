@@ -183,10 +183,18 @@ GitHub Actions is **free and unmetered on public repositories**, on 4 vCPU / 16 
 
 Benchmarked on the development machine, an **Intel Core i5-7360U, 2 cores, 2017, no usable GPU offload** (`ollama` reports `offloaded 0/13 layers to GPU`):
 
-| Model | Time per item | 565 candidates |
+| Task | Model | Time per item |
 |---|---|---|
-| `qwen3-embedding:0.6b` | 2.8 s | 27 min |
-| `nomic-embed-text` | 2.4 s | 22 min |
+| Embedding | `qwen3-embedding:0.6b` | 2.8 s |
+| Embedding | `nomic-embed-text` | 2.4 s |
+| Triage (trivial reply) | `llama3.2:1b` | 31 s |
+| Triage (trivial reply) | `qwen2.5:3b` | 131 s |
+
+Those triage numbers are for a throwaway two-field reply. A real screening prompt
+needs minutes per candidate, so **local triage is a fallback of last resort on
+hardware like this, not a working default.** Groq answers the same prompt in under
+a second, free. This is the clearest argument for the free-tier ladder: it is not
+only cheaper than local, it is the difference between the stage running and not.
 
 Input length barely changed the result, so this is compute-bound rather than token-bound. The original design put a local model tier first specifically to avoid API cost. Since free hosted inference exists and is faster, local-first was paying latency to solve a problem that was already solved. Ollama stays last on the ladder for offline work.
 

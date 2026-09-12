@@ -33,7 +33,13 @@ import httpx
 
 log = logging.getLogger(__name__)
 
+# Cloud providers answer in about a second; 90s is already generous and a hang
+# should fail over rather than block. Local inference is a different animal:
+# measured on a 2017 dual-core i5, llama3.2:1b took 31s and qwen2.5:3b took 131s
+# for a trivial reply, so a real triage prompt needs minutes. Local is the
+# fallback of last resort, and it gets a timeout that reflects that.
 TIMEOUT = httpx.Timeout(90.0)
+LOCAL_TIMEOUT = httpx.Timeout(900.0)
 
 
 class NoCapacityLeft(RuntimeError):
@@ -69,7 +75,17 @@ class Provider:
     style: str = "openai"
 
     @property
+    def local(self) -> bool:
+        """Local providers need no key and never leave the machine."""
+        return self.name == "ollama"
+
+    @property
     def key(self) -> str | None:
+        # Local endpoints authenticate with nothing. Requiring an env var here
+        # would mean a machine with no API keys at all has no provider, which
+        # defeats the point of shipping a local fallback.
+        if self.local:
+            return os.environ.get(self.env_key) or "local"
         return os.environ.get(self.env_key)
 
 
@@ -92,6 +108,9 @@ LADDER = [
              "https://openrouter.ai/api/v1",
              "meta-llama/llama-3.3-70b-instruct:free", 50),
     # Always last: free, private, and on slow hardware, painfully slow.
+    # Always last, always available, no key. Slow on modest hardware, but it is
+    # what makes the product work with nothing configured at all, and the only
+    # option for private sources.
     Provider("ollama", "OLLAMA_HOST",
              "http://localhost:11434/v1", "qwen2.5:3b-instruct-q4_K_M",
              10_000_000),
@@ -186,6 +205,7 @@ class Router:
         ]
 
     def _call_one(self, p: Provider, prompt: str, schema: dict | None) -> str:
+        headers = {} if p.local else {"Authorization": f"Bearer {p.key}"}
         body: dict[str, Any] = {
             "model": p.model,
             "messages": [{"role": "user", "content": prompt}],
@@ -199,9 +219,8 @@ class Router:
                 "json_schema": {"name": "result", "schema": schema, "strict": True},
             }
         r = self._client.post(
-            f"{p.base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {p.key}"},
-            json=body,
+            f"{p.base_url}/chat/completions", headers=headers, json=body,
+            timeout=LOCAL_TIMEOUT if p.local else TIMEOUT,
         )
         if r.status_code == 429:
             raise httpx.HTTPStatusError("rate limited", request=r.request, response=r)
