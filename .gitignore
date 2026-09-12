@@ -26,3 +26,5 @@ config/service-account.json
 *.so
 *.pyd
 build/
+dist/
+*.egg-info/

@@ -1,0 +1,42 @@
+VC Alpha Signal Finder
+Copyright (c) 2026 Coflazo. All rights reserved.
+
+This software is proprietary and confidential.
+
+GRANT OF LICENCE
+
+Subject to the terms below, you are granted a non-exclusive, non-transferable
+licence to install and use this software within a single organisation, for that
+organisation's own investment activities.
+
+You may:
+  - install and run the software on machines you or your organisation control
+  - modify it for your own internal use
+  - process your own data with it
+
+You may not:
+  - redistribute, resell, sublicense or publish the software or its source
+  - offer it to third parties as a service
+  - remove or circumvent licensing or attribution
+
+THIRD-PARTY COMPONENTS
+
+This software depends on separately licensed open-source packages, each governed
+by its own terms. Where techniques were studied from other projects, they were
+reimplemented rather than copied; in particular no code is taken from any
+GPL-licensed project, and the codebase is therefore free of copyleft obligations.
+
+NO WARRANTY
+
+Provided "as is", without warranty of any kind, express or implied. The authors are
+not liable for any claim, damages or other liability arising from its use.
+
+This software makes investment-relevant inferences using statistical models and
+language models. Its output is a research aid and is not investment advice. Every
+scored candidate is an estimate carrying error, and no investment decision should
+rest on it without independent human judgement.
+
+DATA
+
+This software runs locally and transmits no data to the authors. You are the data
+controller for everything it processes. See PRIVACY.md.

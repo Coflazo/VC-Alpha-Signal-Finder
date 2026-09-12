@@ -327,13 +327,61 @@ SQLite, WAL mode. Three tables.
 
 **Deliberately not used: Firecrawl and Maxun.** Both are AGPL-3.0, which is viral over *network* use, so building on them would force this project open the moment it is exposed to anyone. That is a licensing decision, not a quality one; Firecrawl is excellent software.
 
-### On the C++ layer
+### Performance
 
-The original plan put C++ under stage 2's similarity search. Honest reassessment: at 565 candidates, and at 100,000, numpy does this in milliseconds and is far quicker to write.
+Three things dominate wall clock at scale. Everything else is IO-bound and would
+gain nothing from being rewritten.
 
-C++ earns its place when the corpus passes roughly a million vectors and brute-force cosine stops fitting in memory — and the right move then is an approximate index, not hand-rolled loops. It stays on the roadmap with a stated trigger rather than being built before the thing it optimises exists.
+| Path | Before | After | Change |
+|---|---|---|---|
+| Entity resolution | **O(N²)** — 31 ms/mention at 4k entities | indexed lookup, 0.46 ms | **68×**, and flat |
+| Cosine over stored vectors | pure Python, 987 ms per 2k×1024 | C++ on packed blobs, 23 ms | **43×** |
+| MinHash | pure Python | C++ | **279×** |
+| Near-duplicate detection | didn't exist; naive is O(N²) | MinHash + LSH, O(N) | linear, verified |
+
+The entity-resolution one was a live bug, not an optimisation: `resolve()` scanned
+every existing entity on every mention. At 50,000 entities it would have taken hours.
+
+Cosine needed two attempts. The obvious binding — pass a list of lists — measured
+only **2×**, because converting 2000×1024 Python floats into an array costs more
+than the arithmetic. The bottleneck was marshalling, not maths. Reading the packed
+float32 blobs SQLite already returns skips creating those objects at all.
+
+Every C++ function has a pure-Python twin. The twins are the specification the tests
+compare against, the fallback for machines with no compiler, and the readable
+statement of intent when the C++ is wrong.
 
 ---
+
+## Installing
+
+Runs entirely on your machine. Nothing is transmitted to anyone — no telemetry, no
+licence server, no phone-home. **You are the data controller; we never receive your
+data.** See [PRIVACY.md](PRIVACY.md).
+
+```bash
+./install.sh          # or: pipx install vc-alpha
+vc-alpha              # opens http://127.0.0.1:8420
+```
+
+Docker, for firms whose IT policy prefers it:
+
+```bash
+docker build -t vc-alpha . && docker run -p 8420:8420 -v $(pwd)/data:/app/data vc-alpha
+```
+
+Optional speed, once, if you have a compiler:
+
+```bash
+uv run python scripts/build_ext.py    # 43x on cosine, 279x on MinHash
+```
+
+It works without it. The pure-Python fallback is transparent.
+
+### Adding your fund
+
+Open the **Setup** tab, paste the paragraph you already use to describe your fund,
+and it writes a commented config you can then edit. No YAML by hand.
 
 ## Setup
 

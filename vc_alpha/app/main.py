@@ -248,6 +248,50 @@ def report(thesis_id: str, limit: int = 100) -> dict:
     }
 
 
+class NewThesis(BaseModel):
+    name: str
+    prose: str
+    founder_voice: str = ""
+    exclude: list[str] = []
+    hard_signals: list[str] = []
+
+
+@app.post("/api/theses")
+def create_thesis(req: NewThesis) -> dict:
+    """Turn a plain-English thesis into a working config.
+
+    Hand-editing YAML is the largest barrier to anyone but the author using this.
+    The generated file is commented and meant to be edited, not treated as opaque.
+    """
+    from vc_alpha import onboard
+
+    if not req.name.strip() or len(req.prose.strip()) < 40:
+        raise HTTPException(400, "Give the fund a name and at least a sentence or "
+                                 "two describing what you back.")
+    try:
+        path = onboard.create(req.name, req.prose, req.founder_voice,
+                              req.exclude or None, req.hard_signals or None)
+    except FileExistsError as e:
+        raise HTTPException(409, str(e)) from e
+    return {"id": onboard.slugify(req.name), "path": str(path),
+            "stage": onboard.infer_stage(req.prose)}
+
+
+@app.get("/api/health")
+def health() -> dict:
+    """Everything a support conversation needs in one call."""
+    from vc_alpha.fastpath import HAVE_FAST
+
+    conn = db()
+    return {
+        "candidates": conn.execute("SELECT COUNT(*) FROM candidates").fetchone()[0],
+        "theses": len(theses.load_all()),
+        "fast_extension": HAVE_FAST,
+        "providers_configured": [p.name for p in Router(conn).available()],
+        "sheets": sheets.status().configured,
+    }
+
+
 @app.get("/api/deployment")
 def deployment(slots: int = 14, months: int = 22,
                deals_per_month: float = 8.0) -> dict:

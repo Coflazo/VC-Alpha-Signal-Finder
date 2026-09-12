@@ -146,6 +146,26 @@
   </section>
 
   <section id="setup" hidden>
+    <h2>Add your fund's thesis</h2>
+    <p class="note">
+      Write it the way you would describe your fund to a founder. It gets embedded
+      and matched against everything collected, so plain prose works better than a
+      list of tags. The generated file is commented and meant to be edited.
+    </p>
+    <div class="card" style="margin-bottom:24px">
+      <div style="display:grid;gap:8px;max-width:640px">
+        <input id="th-name" placeholder="Fund name" aria-label="Fund name"
+               style="font:inherit;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--fg)">
+        <textarea id="th-prose" rows="4" aria-label="Thesis"
+          placeholder="We back technical founders at pre-seed building developer infrastructure in Europe, often before the category is obvious…"
+          style="font:inherit;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--fg)"></textarea>
+        <div class="controls" style="margin:0">
+          <button class="act primary" id="th-create">Create thesis</button>
+          <span class="sub" id="th-status"></span>
+        </div>
+      </div>
+    </div>
+
     <h2>What is still needed</h2>
     <p class="note">
       Everything below is optional and free, and none of it needs a payment card.

@@ -400,6 +400,25 @@ async function loadSheet() {
 
 // --- setup ------------------------------------------------------------------
 
+$("#th-create").onclick = async () => {
+  const btn = $("#th-create");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/theses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: $("#th-name").value, prose: $("#th-prose").value }),
+    });
+    $("#th-status").textContent =
+      `Created ${r.path} — inferred ${r.stage}. Restart to load it.`;
+    $("#th-name").value = $("#th-prose").value = "";
+  } catch (e) {
+    $("#th-status").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
 LOADERS.setup = async () => {
   const { items } = await api("/api/setup");
   $("#setup-list").replaceChildren(...items.map((i) =>
