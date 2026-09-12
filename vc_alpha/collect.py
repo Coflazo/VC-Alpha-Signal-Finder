@@ -12,12 +12,18 @@ import sqlite3
 
 from vc_alpha import frontier, theses
 from vc_alpha.collectors.base import CandidateRecord
+from vc_alpha.collectors.github import GitHubCollector
+from vc_alpha.collectors.hackernews import HackerNewsCollector
 from vc_alpha.collectors.substack import SubstackCollector
 from vc_alpha.db import connect, now, retention_until
 
 log = logging.getLogger(__name__)
 
-COLLECTORS = {"substack": SubstackCollector}
+COLLECTORS = {
+    "substack": SubstackCollector,
+    "hackernews": HackerNewsCollector,
+    "github": GitHubCollector,
+}
 
 
 def store(conn: sqlite3.Connection, records: list[CandidateRecord], active) -> int:
