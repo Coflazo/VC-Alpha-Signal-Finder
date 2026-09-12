@@ -94,9 +94,9 @@ Run through Ollama during development. Production may use llama.cpp directly for
 
 | Model | Pull | Size | Stage | Where it is used |
 |---|---|---|---|---|
-| `nomic-embed-text-v1.5` | `ollama pull nomic-embed-text` | ~274 MB | 2 | Embeds the thesis once, then every collected item. Cosine similarity between them is the first filter. 8192 token context, so most Reddit posts fit whole. Chosen because it is small enough to run on every item without thinking about cost. |
+| `Qwen3-Embedding-0.6B` | `ollama pull qwen3-embedding:0.6b` | ~639 MB | 2 | Embeds the thesis once, then every collected item. Cosine similarity between them is the first filter. 70.7 MTEB-eng-v2, Apache-2.0. Stage 2 is the one gate nothing downstream can recover from, so it gets the stronger model. `nomic-embed-text` (274 MB, 62.28 MTEB) is the fallback if this measures too slow. |
 | `Qwen3.5-4B-Instruct` Q4_K_M | `ollama pull qwen3.5:4b-instruct-q4_K_M` | ~2.5 GB | 3 | The triage workhorse. Classifies each survivor: is this a startup, what stage, does it match the thesis, confidence. 25 to 40 tok/s on CPU. Always run with a GBNF grammar. |
-| `gpt-oss-20b` MXFP4 | `ollama pull gpt-oss:20b` | ~13 GB | 3 | Second opinion on items stage 3 marks uncertain. Mixture-of-experts with roughly 3.6B parameters active per token, so it reasons like a large model but runs closer to a small one on CPU. Fits 24 GB with context headroom. |
+| `Schematron-3B` Q4_K_M | `ollama pull richardyoung/schematron-3b` | ~2 GB | 1 | Turns scraped HTML into typed records against a JSON schema. Purpose-trained for exactly this, 128K context. Replaces CSS selectors, which break every time a site ships a layout change. The 8B variant exists for harder pages but the vendor recommends 3B as the default. |
 | `bge-reranker-v2-m3` | `ollama pull bge-reranker-v2-m3` | ~2.2 GB | 2 | Optional. Only add this if stage 2 precision measures badly. Do not install it preemptively. |
 
 Deliberately not used: `Qwen3-30B-A3B` and similar 30B-class MoE models. Same appealing shape, but Q4 lands near 18 GB and leaves too little room for KV cache on a 24 GB machine. Revisit if the project ever leaves the free tier.

@@ -63,7 +63,9 @@ CREATE TABLE candidates (
   sheet_row       INTEGER,              -- stage 5, null until written
 
   reviewed        INTEGER DEFAULT 0,    -- human feedback
-  was_good        INTEGER               -- null | 0 | 1
+  was_good        INTEGER,              -- null | 0 | 1
+
+  retention_until TIMESTAMP NOT NULL    -- GDPR; enforced by a real deletion job
 );
 
 CREATE INDEX idx_pipeline ON candidates(similarity, is_startup, reviewed);
@@ -72,6 +74,22 @@ CREATE INDEX idx_pipeline ON candidates(similarity, is_startup, reviewed);
 `source_url` is the dedup key. The same founder posting to three subreddits produces three rows, and that is correct: three independent pieces of evidence. Deduplication by person happens at stage 4, not stage 1.
 
 `was_good` is the whole feedback loop. Everything the review page collects lands there.
+
+`retention_until` exists from the first migration rather than being added later. The thesis targets European founders, so this is personal data under GDPR and retention has to be enforced rather than intended. See `COLLECTORS.md` for the rest of the privacy obligations.
+
+The Reddit watchlist lives alongside it:
+
+```sql
+CREATE TABLE subreddits (
+  name           TEXT PRIMARY KEY,   -- without the r/
+  added_at       TIMESTAMP NOT NULL,
+  active         INTEGER DEFAULT 1,  -- soft delete, preserves hit-rate history
+  source         TEXT,               -- manual | discovered
+  seen_count     INTEGER DEFAULT 0,
+  hit_count      INTEGER DEFAULT 0,
+  last_streamed  TIMESTAMP
+);
+```
 
 ## Stage detail
 
@@ -99,7 +117,7 @@ LinkedIn is deliberately the smallest and least frequent. It is the most fragile
 The cheap gate. No LLM calls.
 
 1. Apply `exclude` string gates. Drop matches.
-2. Embed `raw_text` with `nomic-embed-text`.
+2. Embed `raw_text` with `qwen3-embedding:0.6b`.
 3. Cosine against every active thesis embedding.
 4. Keep the best score and which thesis produced it.
 5. Drop anything below threshold.
@@ -128,7 +146,7 @@ Output schema:
 Routing:
 
 - `confidence >= 0.7` accept the answer, done
-- `confidence < 0.7` re-run on `gpt-oss-20b`
+- `confidence < 0.7` escalate to a free hosted tier (Groq, then Cerebras)
 - still uncertain, mark for human review rather than guessing
 
 `reddit-leads` scoring, where the item came from Reddit, feeds in as a prior. A post it scores 90 for intent starts with a thumb on the scale.
@@ -188,6 +206,7 @@ That is the entire feature set. It exists to produce `was_good` labels, and any 
 ├── README.md              overview
 ├── docs/
 │   ├── PLAN.md            this file
+│   ├── COLLECTORS.md      reddit and linkedin collector designs
 │   └── TOOLCHAIN.md       every source, where each is used
 ├── scripts/
 │   └── install-skills.sh
@@ -207,7 +226,7 @@ Each milestone ends somewhere useful, so the project survives being put down for
 1. **One source, end to end.** Reddit only, one thesis, no local model. Collect, embed, filter, write straight to Sheets. Proves the spine works. No triage yet.
 2. **Add triage.** Ollama plus a GBNF grammar. Measure tokens per second and JSON validity on a fixed 200-post sample before trusting it.
 3. **Add research.** Claude on the shortlist. Person-level dedup.
-4. **Add sources.** GitHub, then blogs, then LinkedIn last.
+4. **Add sources.** GitHub, then blogs, then LinkedIn last. See `COLLECTORS.md` for the Reddit and LinkedIn designs.
 5. **Move C++ under stage 2.** Only when the Python version is measurably too slow. Not before.
 6. **Review page.** Once there is enough output to be worth reviewing.
 7. **Feedback loop.** Use accumulated `was_good` labels to recalibrate the threshold and the score weights.

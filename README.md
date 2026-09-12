@@ -35,12 +35,14 @@ Stage 2 matters more than it looks. Embedding a Reddit post costs roughly nothin
 
 | Source | What we look for | How we get it |
 |---|---|---|
-| Reddit | Founders describing problems, launch posts, "I built this" threads | reddapi.dev semantic search |
+| Reddit | Founders describing problems, launch posts, "I built this" threads | PRAW stream over a watchlist, plus reddapi.dev semantic search |
 | GitHub | Repos with unusual star velocity, new orgs, fresh commit history | GitHub Trending, GitHub API |
-| LinkedIn | Title changes to founder/stealth, new company pages | agent-reach routing |
+| LinkedIn | Title changes to founder/stealth, new company pages | Patchright, run from the Mac only |
 | Blogs, forums | Build-in-public writeups, Show HN, indie posts | Firecrawl, RSS |
 
-Reddit is the primary source. It is where founders talk before they have anything to announce, and reddapi.dev gives semantic search over it without needing Reddit OAuth.
+Reddit is the primary source. It is where founders talk before they have anything to announce. A watchlist of subreddits streams continuously, and the system works out which other subreddits are worth adding by looking at where the founders it already liked also post.
+
+LinkedIn runs from the Mac rather than the server, because LinkedIn weights IP reputation heavily and cloud datacenter ranges are the fastest way to get an account flagged. Full design for both in [docs/COLLECTORS.md](docs/COLLECTORS.md).
 
 ### Thesis matching
 
@@ -66,23 +68,29 @@ The fix is not a smaller model. It is a differently shaped one.
 
 ### Models to download
 
+Extraction and judgement are separate jobs, so they get separate models. Pulling a messy page into a typed record is a parsing problem with a known schema. Deciding whether that record matches the thesis is a reasoning problem. A model built for one is not the best choice for the other, and splitting them means both can be small.
+
 | Role | Model | Size | Notes |
 |---|---|---|---|
-| Embeddings | `nomic-embed-text-v1.5` | ~274 MB | Stage 2 filter. Fast on CPU, 8192 token context. |
-| Triage | `Qwen3.5-4B-Instruct` Q4_K_M | ~2.5 GB | Stage 3 workhorse. 25 to 40 tok/s on CPU. |
-| Hard cases | `gpt-oss-20b` MXFP4 | ~13 GB | Mixture-of-experts, only ~3.6B parameters active per token. Large-model reasoning at small-model speed. Fits 24 GB with room for context. |
-| Reranking (optional) | `bge-reranker-v2-m3` | ~2.2 GB | Only if stage 2 precision turns out to be bad. Skip until measured. |
+| Embeddings | `Qwen3-Embedding-0.6B` | ~639 MB | Stage 2 filter. 70.7 on MTEB-eng-v2, Apache-2.0. Stage 2 is the one filter nothing downstream can recover from, so it gets the better model rather than the smaller one. |
+| Extraction | `Schematron-3B` Q4_K_M | ~2 GB | Purpose-trained for noisy HTML to schema-conformant JSON, 128K context. Turns scraped pages into typed records without CSS selectors that break on every layout change. |
+| Triage | `Qwen3.5-4B-Instruct` Q4_K_M | ~2.5 GB | Stage 3 judgement. Best sub-8B model for structured output at 96.60% F1, and 1.7 to 1.8 times faster than Gemma 3 4B which ties it on quality. |
+| Hard cases | Groq or Cerebras free tier | — | Escalation for anything triage marks uncertain. Faster and better than any 20B that fits on this hardware. |
+| Reranking (optional) | `bge-reranker-v2-m3` | ~2.2 GB | Only if stage 2 precision measures badly. Do not install preemptively. |
 
 ```bash
-# embeddings + triage, via Ollama
-ollama pull nomic-embed-text
+ollama pull qwen3-embedding:0.6b
+ollama pull richardyoung/schematron-3b
 ollama pull qwen3.5:4b-instruct-q4_K_M
-
-# hard cases
-ollama pull gpt-oss:20b
 ```
 
-**Why not a 30B MoE.** Qwen3-30B-A3B and similar are tempting for the same reason gpt-oss-20b is: few active parameters means CPU-friendly speed. But Q4 lands near 18 GB, which leaves almost nothing for KV cache once context gets long on a 24 GB machine. It becomes the upgrade path if this ever moves off the free tier, not the starting point.
+Everything local totals about 5 GB, so all three stay resident at once on a 24 GB box.
+
+**Why no 20B or 30B model.** The obvious move is a mixture-of-experts model in the 20B to 30B range, since few active parameters means CPU-friendly speed. It does not survive the benchmarks. Schematron-8B beats GPT-OSS-20B on structured extraction with 2.5 times fewer parameters, and Phi-4 at 14B beats both. Meanwhile GPT-OSS-20B alone would have taken 13 GB, over half the RAM budget. A 30B MoE at Q4 lands near 18 GB and leaves nothing for KV cache at long context.
+
+The conclusion from the structured-output benchmarks is blunt: prompting and constraint strategy matter more than parameter count. So the money goes into the grammar, not the model.
+
+Sources: [LLMStructBench](https://arxiv.org/abs/2602.14743), [Structured Output Benchmark](https://arxiv.org/html/2604.25359v1), [Schematron](https://inference.net/blog/schematron/).
 
 **The thing that actually controls failure rate.** Not model size. Constrained decoding. Run llama.cpp with a GBNF grammar that forces output into the exact JSON schema, and a 4B model produces valid parseable JSON essentially every time. A much larger model writing free-form prose does not. One grammar file is worth more here than ten billion parameters.
 
@@ -199,9 +207,9 @@ These are not in the install script because they were set up separately. If they
 # 2. restart Claude Code so plugins and skills load
 
 # 3. local models
-ollama pull nomic-embed-text
+ollama pull qwen3-embedding:0.6b
+ollama pull richardyoung/schematron-3b
 ollama pull qwen3.5:4b-instruct-q4_K_M
-ollama pull gpt-oss:20b
 
 # 4. toolchain
 brew install cmake
