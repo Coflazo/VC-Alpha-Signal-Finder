@@ -1,238 +1,358 @@
 # VC Alpha Signal Finder
 
-Finds early-stage startups before they show up in the places everyone already watches.
+Finds early-stage startups before they reach the places every other fund is already watching, and costs nothing to run.
 
-Give it a VC thesis in plain English. It reads Reddit, LinkedIn, GitHub, blogs and forums looking for founders and projects that match, scores each one, researches the survivors properly, and writes the results into a Google Sheet in priority order.
+Give it a VC thesis written in plain English. It reads Hacker News, Substack, GitHub, Reddit and LinkedIn looking for founders and projects that match, scores each one, researches the survivors properly, and writes ranked results into a Google Sheet using the exact report format the fund asked for.
 
-The point is coverage without cost. Most signal work either costs a lot (paid data platforms) or misses the early window (news and funding databases only see a company after someone else found it). This sits earlier: a founder complaining about a problem on r/SaaS, a repo that suddenly picks up stars, a person quietly changing their LinkedIn title to "building something new."
+**Status:** working spine. Three sources collect live, 565 candidates and 439 graph nodes in the database, 22 tests passing, zero credentials and zero cost so far. Triage, research and output are next.
 
-## Status
+---
 
-Early. Repo scaffolding and architecture only. No pipeline code yet.
+## Why this exists
+
+Startup discovery tools mostly sit in one of two places, and both miss the window.
+
+Paid data platforms (PitchBook, Crunchbase, Dealroom) are accurate and expensive, but they are downstream. A company appears once it has raised, been covered, or filed something. By then it has been found.
+
+News and funding databases have the same problem in cheaper form. A funding announcement is a record that somebody else got there first.
+
+The window this targets is earlier and noisier: a founder complaining on r/SaaS about a problem they are about to go build, a repo under a three-week-old org whose stars are climbing, a Show HN post at 40 points, a person quietly changing their title to "building something new". None of that is in a database. All of it is public.
+
+The reason nobody does this cheaply is that the signal-to-noise ratio is brutal. Reading everything is expensive, and hundreds of thousands of posts a week is well past what a person or a paid LLM budget can absorb. This system's answer is a cost ladder: every stage is cheaper than the one after it, so expensive work only ever touches what already survived something cheaper.
+
+---
 
 ## How it works
 
-Five stages. Each one is cheaper than the next, so expensive work only runs on what survived.
+Five stages. Cost per item rises at every step, and volume falls faster.
 
 ```
-1. COLLECT     scrapers pull raw posts, repos, profiles
+                                                 cost/item    typical survivors
+1. COLLECT    graph-walking scrapers                    ~0       100,000/week
                      |
-2. FILTER      embeddings score each item against the thesis
-               (cosine similarity, no LLM call)
+2. FILTER     embed, cosine against thesis vectors     ~0ms         ~5,000
                      |
-3. TRIAGE      small local model classifies survivors
-               is this a startup? what stage? does it fit?
+3. TRIAGE     free-tier LLM, structured output         ~1 call        ~200
                      |
-4. RESEARCH    Claude digs into the shortlist properly
-               founders, traction, competitors, why now
+4. RESEARCH   deep multi-source investigation       ~20 calls          ~20
                      |
-5. WRITE       ranked findings appended to Google Sheets
+5. WRITE      ranked rows in the fund's format           —            ~20
 ```
 
-Stage 2 matters more than it looks. Embedding a Reddit post costs roughly nothing and takes milliseconds, and it throws away the 95% of scraped content that has nothing to do with the thesis. Every stage after it only sees candidates that already passed a relevance bar.
+The numbers are illustrative, not measured; the shape is the point. **Stage 2 does the real work.** Embedding a post costs milliseconds and no tokens, and it discards the overwhelming majority of what was collected. Everything after it operates on a set small enough to afford.
 
-### Sources
+### Stage 1 — Collect
 
-| Source | What we look for | How we get it |
-|---|---|---|
-| Reddit | Founders describing problems, launch posts, "I built this" threads | PRAW stream over a watchlist, plus reddapi.dev semantic search |
-| GitHub | Repos with unusual star velocity, new orgs, fresh commit history | GitHub Trending, GitHub API |
-| LinkedIn | Title changes to founder/stealth, new company pages | Patchright, run from the Mac only |
-| Blogs, forums | Build-in-public writeups, Show HN, indie posts | Firecrawl, RSS |
+Sources are walked as graphs, not scraped as lists. See [The frontier](#the-frontier) below.
 
-Reddit is the primary source. It is where founders talk before they have anything to announce. A watchlist of subreddits streams continuously, and the system works out which other subreddits are worth adding by looking at where the founders it already liked also post.
+**In:** a set of seed nodes. **Out:** `CandidateRecord` rows, deduplicated on `source_url`.
 
-LinkedIn runs from the Mac rather than the server, because LinkedIn weights IP reputation heavily and cloud datacenter ranges are the fastest way to get an account flagged. Full design for both in [docs/COLLECTORS.md](docs/COLLECTORS.md).
+### Stage 2 — Filter
 
-### Thesis matching
+1. Apply each thesis's `exclude` terms as plain string gates. A hard exclude must never cost an embedding, let alone an inference call.
+2. Embed `raw_text`.
+3. Cosine against every active thesis vector.
+4. Keep the best score and which thesis produced it.
+5. Drop anything below threshold.
 
-A thesis is a paragraph, not a keyword list. "We back technical founders building developer infrastructure in Europe, pre-seed, ideally before they have a product" has no useful keywords in it.
+**The threshold is the most consequential number in the system.** A candidate dropped here is never seen again by any later stage. Too high and real signal dies where nothing can rescue it; too low and stage 3 drowns and burns the daily free allowance. It currently sits at 0.35, which is a guess, and calibrating it against hand-labelled data is the single highest-leverage task outstanding.
 
-So the thesis gets embedded once into a vector. Every scraped item gets embedded too. Cosine similarity between them is the first filter. It is crude but it is nearly free, and crude-but-free is what you want when you are scoring a hundred thousand items a week.
+### Stage 3 — Triage
 
-The local model handles the judgement the embedding cannot: is this person actually starting a company, or just complaining? Are they pre-seed or Series A? Is this a real product or a weekend project?
+A free-tier LLM answers a structured question per candidate, including the thesis's `hard_signals` explicitly rather than hoping they are inferred.
 
-## The local model tier
+```json
+{
+  "is_startup": true,
+  "stage": "pre-seed",
+  "thesis_match": 0.72,
+  "founder_signal": true,
+  "reasoning": "Author left an infrastructure job to build this, has a prototype, no funding mentioned.",
+  "confidence": 0.81
+}
+```
 
-The cheap brain runs on free infrastructure. That constraint drives every model choice here.
+Confidence at or above 0.7 is accepted. Below that it escalates to the next provider on the ladder. Still uncertain means a human looks, rather than the system guessing.
 
-Two hosting options, and they are not exclusive:
+### Stage 4 — Research
 
-**GitHub Actions.** 2,000 free minutes a month on a private repo. Good for scheduled scrape-and-score runs. No server to maintain, no uptime to worry about. This is the default.
+Only the shortlist. For each survivor: who the founders are and what they did before, whether a product exists and who uses it, who else is doing this, why now, and any funding history the earlier stages missed.
 
-**Oracle Cloud Always Free.** 4 ARM cores and 24 GB RAM, free with no time limit. No GPU. Worth having if the pipeline needs to run continuously rather than on a schedule, or if you want a persistent Postgres instance.
+Person-level deduplication happens here, not at stage 1. The same founder appearing on Reddit, HN and Substack is three independent pieces of evidence at collection time, and one research document at this point.
 
-The Oracle box has no GPU, and that is the number that decides everything else. A normal 7B or 8B model runs at roughly 5 to 12 tokens per second on those cores. Too slow to triage tens of thousands of posts.
+### Stage 5 — Write
 
-The fix is not a smaller model. It is a differently shaped one.
+Appended to Google Sheets, ordered by score. Never rewritten, because a human editing the status column must not have their work destroyed by the next run. `sheet_row` tracks what has already been written.
 
-### Models to download
+```
+score = 0.3 * similarity          (stage 2 cosine)
+      + 0.5 * thesis_match        (stage 3 judgement)
+      + 0.2 * recency_decay(posted_at)
+```
 
-Extraction and judgement are separate jobs, so they get separate models. Pulling a messy page into a typed record is a parsing problem with a known schema. Deciding whether that record matches the thesis is a reasoning problem. A model built for one is not the best choice for the other, and splitting them means both can be small.
+Those weights are a starting guess, to be refitted once enough `was_good` labels exist.
 
-| Role | Model | Size | Notes |
+### Stage 6 — Review
+
+One page listing candidates with two buttons: good, or not. That is the entire feature set. It exists to produce `was_good` labels, which are what let the threshold and the score weights be fitted rather than guessed. Any feature that does not serve that is out of scope.
+
+---
+
+## The frontier
+
+The design insight that removed most of the work: **every source is the same problem.** A graph of nodes you visit, each yielding candidates and pointing at neighbours.
+
+| Source | Node | How it expands | Risk |
 |---|---|---|---|
-| Embeddings | `Qwen3-Embedding-0.6B` | ~639 MB | Stage 2 filter. 70.7 on MTEB-eng-v2, Apache-2.0. Stage 2 is the one filter nothing downstream can recover from, so it gets the better model rather than the smaller one. |
-| Extraction | `Schematron-3B` Q4_K_M | ~2 GB | Purpose-trained for noisy HTML to schema-conformant JSON, 128K context. Turns scraped pages into typed records without CSS selectors that break on every layout change. |
-| Triage | `Qwen3.5-4B-Instruct` Q4_K_M | ~2.5 GB | Stage 3 judgement. Best sub-8B model for structured output at 96.60% F1, and 1.7 to 1.8 times faster than Gemma 3 4B which ties it on quality. |
-| Hard cases | Groq or Cerebras free tier | — | Escalation for anything triage marks uncertain. Faster and better than any 20B that fits on this hardware. |
-| Reranking (optional) | `bge-reranker-v2-m3` | ~2.2 GB | Only if stage 2 precision measures badly. Do not install preemptively. |
+| Substack | publication | `/api/v1/recommendations/from/{id}` | None. Public, free, an intended feature. |
+| Hacker News | query, then author | queries expand to the people who answered them | None. |
+| GitHub | query, then org | queries expand to the organisations behind matching repos | None. |
+| Reddit | subreddit | co-posting graph of authors who already scored well | Low. Free OAuth. |
+| LinkedIn | person | "People also viewed" | **High.** Hard budget required. |
 
-```bash
-ollama pull qwen3-embedding:0.6b
-ollama pull richardyoung/schematron-3b
-ollama pull qwen3.5:4b-instruct-q4_K_M
+So there is one `frontier.py` and the collectors stay thin. Each implements two methods: `seeds()` and `visit(node)`.
+
+### Why expansion is score-gated
+
+Only nodes that produced good candidates get to add their neighbours.
+
+This is a **quality** mechanism before it is a safety one. Expand blindly from a founder's LinkedIn and you reach their recruiters and university classmates within two hops. Expand blindly from a startup newsletter and you arrive at cooking newsletters. Gating on measured yield is what keeps a crawl on-thesis.
+
+Two details that matter:
+
+- **New nodes get the benefit of the doubt.** One hit in two posts is not a 50% hit rate, it is noise. A node is only judged after `min_seen_before_gating` observations.
+- **Rejection is a soft delete.** Deactivating a node preserves its hit-rate history and stops discovery from re-suggesting something already turned down.
+
+Discovery suggestions are ranked by **measured** hit rate. A model can explain why a node looks promising, but the ordering comes from what it actually produced. Live proof: four seed newsletters produced 92 posts and discovered 78 further publications in one pass, reaching `andrewchen`, `The VC Corner` and `speedrun` within a single hop.
+
+---
+
+## Sources
+
+| Source | Endpoint | Auth | Notes |
+|---|---|---|---|
+| **Hacker News** | `hn.algolia.com/api/v1/search_by_date` | none | The best first-hand source. A Show HN post is a founder describing their own work before any press exists. |
+| **Substack** | `/api/v1/archive`, `/api/v1/recommendations/from/{id}` | none | Public archive only. Custom domains 301 away from `*.substack.com`. |
+| **GitHub** | `/search/repositories`, `/orgs/{org}/repos` | optional | Works anonymously; reuses the `gh` CLI token for a higher limit if present, never prompts. |
+| **Reddit** | PRAW streaming | **OAuth required** | Public JSON returns 403 and RSS returns an empty body, so there is no anonymous path. Free app registration takes two minutes. |
+| **LinkedIn** | Scrapling stealth fetch | session cookie | Highest risk. Runs from a home IP, never a cloud server. |
+
+Live sample from Hacker News, showing the signal is genuinely first-hand:
+
+```
+I built an App to give alerts when your dependencies (Postgres) reach EOL
+I built a browser and HTTP client together from scratch for pentesting
 ```
 
-Everything local totals about 5 GB, so all three stay resident at once on a 24 GB box.
+---
 
-**Why no 20B or 30B model.** The obvious move is a mixture-of-experts model in the 20B to 30B range, since few active parameters means CPU-friendly speed. It does not survive the benchmarks. Schematron-8B beats GPT-OSS-20B on structured extraction with 2.5 times fewer parameters, and Phi-4 at 14B beats both. Meanwhile GPT-OSS-20B alone would have taken 13 GB, over half the RAM budget. A 30B MoE at Q4 lands near 18 GB and leaves nothing for KV cache at long context.
+## Zero cost, and what that actually costs
 
-The conclusion from the structured-output benchmarks is blunt: prompting and constraint strategy matter more than parameter count. So the money goes into the grammar, not the model.
+The product must be free to operate. Not cheap, zero. Here is how each layer gets there and what the trade is.
 
-Sources: [LLMStructBench](https://arxiv.org/abs/2602.14743), [Structured Output Benchmark](https://arxiv.org/html/2604.25359v1), [Schematron](https://inference.net/blog/schematron/).
+### Inference
 
-**The thing that actually controls failure rate.** Not model size. Constrained decoding. Run llama.cpp with a GBNF grammar that forces output into the exact JSON schema, and a 4B model produces valid parseable JSON essentially every time. A much larger model writing free-form prose does not. One grammar file is worth more here than ten billion parameters.
+Free tiers, no credit card, rotated by `vc_alpha/llm.py`.
 
+| Provider | Free allowance | Position |
+|---|---|---|
+| Google Gemini Flash | 1,500 requests/day | Primary |
+| Groq (llama-3.3-70b) | 1,000 req/day, 100K tokens/day | Fast short calls |
+| Cerebras | 1M tokens/day | Overflow |
+| GitHub Models | free within limits | Overflow, no new signup |
+| OpenRouter free models | 50 req/day | Last resort |
+| Ollama, local | unlimited | Offline fallback |
+
+Roughly **3,000 classifications a day at zero cost**. Stage 2 cuts volume long before any of this is reached.
+
+The router tracks each provider's daily usage in SQLite so counts survive restarts, and treats a 429 as better evidence than its own counter, since calls may have come from another machine.
+
+### The honest caveat about free inference
+
+**Free tiers generally train on what you send them.** For a tool whose whole value is proprietary deal flow, that is a real cost, just not a monetary one.
+
+The mitigation is enforced in code, not documented and hoped for. `Router.complete()` takes a required `public_text` argument and raises `PrivateTextRefused` otherwise. Only text that was already published by someone else goes out. Thesis prose, match reasoning and assembled reports never leave the machine.
+
+The reasoning: a Reddit post anyone can read is not the asset. The asset is the aggregation, the scoring against a private thesis, and the ranked shortlist. Those stay local. A fund uncomfortable even with public text leaving can point one config value at a paid or local endpoint, and nothing else in the codebase changes.
+
+### Compute
+
+GitHub Actions is **free and unmetered on public repositories**, on 4 vCPU / 16 GB Ubuntu runners. Private repos get 2,000 minutes a month, around 66 minutes a day, which is enough for scheduled collection. Oracle Cloud Always Free (4 ARM cores, 24 GB, no time limit) is the option if the pipeline ever needs to be persistently resident rather than scheduled.
+
+### Measured performance, and why local models are not the default
+
+Benchmarked on the development machine, an **Intel Core i5-7360U, 2 cores, 2017, no usable GPU offload** (`ollama` reports `offloaded 0/13 layers to GPU`):
+
+| Model | Time per item | 565 candidates |
+|---|---|---|
+| `qwen3-embedding:0.6b` | 2.8 s | 27 min |
+| `nomic-embed-text` | 2.4 s | 22 min |
+
+Input length barely changed the result, so this is compute-bound rather than token-bound. The original design put a local model tier first specifically to avoid API cost. Since free hosted inference exists and is faster, local-first was paying latency to solve a problem that was already solved. Ollama stays last on the ladder for offline work.
+
+---
+
+## Theses
+
+A thesis is two things in one file: the prose stage 2 embeds and matches against, and the report template the fund expects at the end. Both live in `config/theses/*.yaml`.
+
+```yaml
+id: treeo
+name: Treeo VC
+
+prose: >
+  We back immigrant founders building AI-native B2B companies at pre-seed and
+  seed. Founders who moved countries and are building for a global market...
+
+exclude: [recruitment agency, dropshipping, crypto trading bot]
+
+hard_signals:                 # put to the triage model explicitly
+  - Founder is an immigrant or has moved countries to build this
+  - Product is AI-native rather than AI bolted onto an existing product
+  - The US is on their horizon as a market
+
+report_fields:                # exactly what this fund asked for
+  - key: startup_name
+    label: "Startup name"
+  ...
 ```
-llama-cli -m qwen3.5-4b-instruct-q4_k_m.gguf --grammar-file schemas/triage.gbnf
-```
 
-### Burst capacity
+Five funds are configured: **Treeo VC**, **Revo Capital**, **212**, **e2vc** and **Earlybird**. They are real, researched theses, and they double as the test set precisely because they disagree with each other.
 
-When the queue backs up, overflow to free hosted tiers rather than waiting on CPU:
+Each shares a common report core, then adds what its own thesis turns on:
 
-- Groq free tier (fast, generous daily limits)
-- Cerebras free tier
-- Gemini Flash free tier
+| Fund | Its own questions |
+|---|---|
+| Treeo | Immigrant founder status, US on the horizon |
+| Revo | Which Türkiye link applies (founders or R&D), technical depth |
+| 212 | Traction evidence, PMF evidence — this thesis fails without them |
+| e2vc | Why this founder (at idea stage that *is* the investment), global from day one |
+| Earlybird | Category, and the technical moat |
 
-Keep every call behind one function so the tiers stay swappable:
+**Three of the five turn on something keyword search cannot see**: founder origin, immigrant status, pre-category timing. That is the gap the embedding and LLM stages exist to close. Had all five been "fintech in Germany", a keyword filter would have been the honest answer and this architecture would be overbuilt.
 
-```python
-llm_call(prompt: str, schema: dict) -> dict
-```
+Every candidate is scored against all active theses and keeps its best match. Rescraping per thesis would be absurd.
 
-Never call a provider SDK directly from pipeline code.
+---
+
+## Data model
+
+SQLite, WAL mode. Three tables.
+
+**`candidates`** — one row per discovered thing. `id` is the sha256 of `source_url`, which is also uniquely constrained, so reruns are free. Columns fill in left to right as a row moves through the stages: `embedding`/`similarity`/`thesis_id` at stage 2, `triage_json`/`is_startup`/`confidence` at stage 3, `research_md` at 4, `score`/`sheet_row` at 5, `reviewed`/`was_good` at 6.
+
+`retention_until` is present from the first migration rather than bolted on later, and `forget_author()` is a single function so a deletion request has exactly one code path.
+
+**`nodes`** — the frontier, across every source. Carries `depth`, `parent`, `source_kind` (seed/discovered/manual), `active`, `exhausted`, and the `seen_count`/`hit_count` pair that gating and suggestion ranking both read.
+
+**`author_activity`** — which authors appear where. This is what Reddit's co-posting discovery and LinkedIn cross-seeding are built on.
+
+**`llm_usage`** — per-day, per-provider request and failure counts, so free allowances are tracked across restarts and machines.
+
+---
 
 ## Stack
 
-- **C++** for the throughput-sensitive parts: dedup, embedding similarity search, anything that runs over the full corpus.
-- **Python** for scrapers, orchestration, LLM calls, Sheets output. Fast to change, and speed does not matter where it is IO-bound anyway.
-- **SQLite** for the candidate queue to start. Postgres later only if concurrent writers become a real problem, not before.
-- **Frontend** minimal. A single page to review the shortlist and mark hits or misses. That feedback is training data for the scoring model, so it earns its keep.
+| Layer | Choice | Why |
+|---|---|---|
+| Language | Python 3.11+, `uv` | The whole pipeline is IO-bound |
+| HTTP | `httpx` | Substack, HN and GitHub return clean JSON; a scraping framework on top would be ceremony |
+| Anti-bot fetching | [Scrapling](https://github.com/D4Vinci/Scrapling) (BSD-3) | Tiered HTTP → stealth → browser, Cloudflare handling, and `adaptive=True` selectors that relocate elements after a redesign |
+| HTML to text | [Crawl4AI](https://github.com/unclecode/crawl4ai) (Apache-2.0) | Clean markdown with noise filtering |
+| Reddit | PRAW | `subreddit.stream.submissions()` pushes new posts instead of polling |
+| Storage | SQLite | Postgres only if concurrent writers become a real problem |
 
-## Required Claude skills
+**Deliberately not used: Firecrawl and Maxun.** Both are AGPL-3.0, which is viral over *network* use, so building on them would force this project open the moment it is exposed to anyone. That is a licensing decision, not a quality one; Firecrawl is excellent software.
 
-This is the part that matters when opening this repo on a new machine. Run the install script first, then work.
+### On the C++ layer
+
+The original plan put C++ under stage 2's similarity search. Honest reassessment: at 565 candidates, and at 100,000, numpy does this in milliseconds and is far quicker to write.
+
+C++ earns its place when the corpus passes roughly a million vectors and brute-force cosine stops fitting in memory — and the right move then is an approximate index, not hand-rolled loops. It stays on the roadmap with a stated trigger rather than being built before the thing it optimises exists.
+
+---
+
+## Setup
 
 ```bash
-./scripts/install-skills.sh
+git clone git@github.com:Coflazo/VC-Alpha-Signal-Finder.git
+cd VC-Alpha-Signal-Finder
+uv sync --extra dev
+
+# Collect. No credentials needed for these three.
+uv run python -m vc_alpha.collect --source hackernews --visits 5
+uv run python -m vc_alpha.collect --source substack   --visits 5
+uv run python -m vc_alpha.collect --source github     --visits 5
+
+# What the graph found, ranked by measured hit rate
+uv run python -m vc_alpha.collect --suggestions substack
+
+# Score against the theses
+uv run python -m vc_alpha.score_all --thesis treeo --top 15
+
+uv run pytest
 ```
 
-Everything it installs, and why:
+### Optional credentials, all free
 
-### Core pipeline
-
-| Skill | Package | Why |
+| Variable | From | Unlocks |
 |---|---|---|
-| gws-sheets | `googleworkspace/cli@gws-sheets` | Writes findings to Google Sheets. Official Google, 53K installs. |
-| data-scraper-agent | `affaan-m/ecc@data-scraper-agent` | Scheduled collection agents that run free on GitHub Actions. Closest existing thing to this product's shape. |
-| deep-research | `affaan-m/ecc@deep-research` | Stage 4. Multi-source research with citations. |
-| python-patterns | `affaan-m/ecc@python-patterns` | Python idioms and typing discipline. |
+| `GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) | Primary inference and embeddings |
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) | Fast inference |
+| `CEREBRAS_API_KEY` | [cloud.cerebras.ai](https://cloud.cerebras.ai) | Overflow inference |
+| `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | reddit.com/prefs/apps, script type | The Reddit collector |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Google Cloud, Sheets API enabled | Sheets output |
 
-### Reddit
+None require a credit card. Without any of them, collection and stage 2 still run against local Ollama.
 
-| Skill | Package | Why |
-|---|---|---|
-| reddapi | `lignertys/reddit-research-skills@reddapi` | Semantic search over Reddit, no OAuth needed. |
-| reddit-leads | `lignertys/reddit-research-skills@reddit-leads` | Scores posts 0-100 for intent and classifies signal type. Built for B2B lead finding, which is structurally the same problem as founder finding. |
-| reddit-search-api | `lignertys/reddit-research-skills@reddit-search-api` | Raw endpoint reference for debugging the integration. |
+---
 
-### Discovery
+## Privacy and legal
 
-| Skill | Package | Why |
-|---|---|---|
-| github-trending | `hoodini/ai-agents-skills@github-trending` | Startups leave GitHub traces before they leave press traces. |
+This processes personal data, and the theses target European founders, so GDPR applies.
 
-### C++
+Legitimate interest is a workable basis for B2B research, and it comes with obligations that are built in rather than promised: collect only fields used for scoring, set a retention period and enforce it with a real deletion job, and be able to erase an individual on request through one function. Public posts are still personal data once tied to an identifiable person; being public changes the expectation of privacy, not whether the regulation applies.
 
-| Skill | Package | Why |
-|---|---|---|
-| cpp-coding-standards | `affaan-m/ecc@cpp-coding-standards` | C++ Core Guidelines enforcement. |
-| cpp-testing | `affaan-m/ecc@cpp-testing` | GoogleTest and CTest setup, sanitizers, coverage. |
+**Scope limits held deliberately:**
 
-### ML and cost control
+- Public content only. Paywalled Substack posts stay paywalled.
+- LinkedIn is read-only: profiles and articles, no messaging, no connection requests, no feed interaction.
+- No credential sharing, no access-control circumvention.
+- LinkedIn runs at a hard daily cap with jitter, and stops on the first soft block rather than retrying.
 
-| Skill | Package | Why |
-|---|---|---|
-| mle-workflow | `affaan-m/ecc@mle-workflow` | Reproducible training, evaluation, monitoring, rollback. |
-| cost-aware-llm-pipeline | `affaan-m/ecc@cost-aware-llm-pipeline` | Model routing by task complexity and budget tracking. Directly describes the tiered brain above. |
-| browser-qa | `affaan-m/ecc@browser-qa` | Visual verification of the review frontend. |
-
-### Already installed, used by this project
-
-These are not in the install script because they were set up separately. If they are missing on a new machine, install them too.
-
-| Skill | Source | Role |
-|---|---|---|
-| agent-reach | [Panniantong/Agent-Reach](https://github.com/Panniantong/Agent-Reach) | Platform router for Reddit, X, LinkedIn, GitHub, RSS. Use this rather than writing per-platform fetch code. Check health with `agent-reach doctor --json`. |
-| gstack-browser | `garrytan/gstack` | Headless browser for scraping targets that need JS rendering. |
-| ml-skill | personal | Local corpus covering sklearn, evaluation, imbalanced data, time series. |
-| minimalist-ui | `leonxlnx/taste-skill` | Frontend direction for the review page. |
-| impeccable | `pbakaus/impeccable` | Interface design and audit. |
-| latex | personal | Investment memo output, if it ever needs to leave the spreadsheet. |
-
-### Plugins
-
-| Plugin | Marketplace | Role |
-|---|---|---|
-| superpowers | `claude-plugins-official` | Brainstorming, planning, TDD, debugging workflows. |
-| claude-mem | `thedotmack` | Cross-session memory. Lets a new session recall prior work on this repo. |
-| clangd-lsp | `claude-plugins-official` | C++ language server. |
-| ponytail | `DietrichGebert` | Keeps implementations minimal. |
-
-### MCP servers
-
-| Server | Status | Role |
-|---|---|---|
-| firecrawl | **Broken, returns 401** | Scraping and search. Needs a fresh API key before it is usable. |
-| browserbase | Working | Hosted browser automation. |
-
-## Setup on a new machine
-
-```bash
-# 1. skills
-./scripts/install-skills.sh
-
-# 2. restart Claude Code so plugins and skills load
-
-# 3. local models
-ollama pull qwen3-embedding:0.6b
-ollama pull richardyoung/schematron-3b
-ollama pull qwen3.5:4b-instruct-q4_K_M
-
-# 4. toolchain
-brew install cmake
-
-# 5. credentials (none are committed)
-#    - reddapi.dev key
-#    - Google service account JSON for Sheets
-#    - Firecrawl key, if using Firecrawl
-#    - Groq / Cerebras / Gemini keys for burst capacity
-```
+---
 
 ## Open questions
 
-Things not decided yet, listed so they do not quietly get decided by accident.
+Written down so they do not get decided by accident.
 
-- **Firecrawl key is dead.** Either renew it or drop Firecrawl and lean on agent-reach plus Browserbase.
-- **GitHub Actions or Oracle VM.** Actions is simpler and probably enough. Oracle only earns its place if the pipeline needs to be continuously resident.
-- **Benchmark before committing to a model.** The table above is reasoned from published numbers, not measured on the actual instance. First real task: run a fixed 200-post sample through the triage tier and measure tokens per second and JSON validity rate.
-- **LinkedIn scraping is legally and technically fragile.** Rate limits and terms of service both apply. Treat it as a nice-to-have, not a dependency.
-- **How thesis feedback loops back.** The review page collects hit/miss labels. Unclear yet whether that retrains the embedding filter, adjusts the triage prompt, or trains a separate classifier.
+- **The stage-2 threshold is uncalibrated.** 0.35 is a guess. Roughly 100 hand-labelled candidates would replace it with a number that has precision and recall attached. Highest-value hour available.
+- **Free tiers train on submitted data.** Mitigated by the public-text rule, not eliminated. A fund may reasonably want a paid endpoint.
+- **LinkedIn is legally and technically fragile.** Treated as a nice-to-have that must never break a run.
+- **How feedback loops back.** `was_good` labels could retune the threshold, adjust the triage prompt, or train a separate classifier. Undecided, and should stay undecided until there are labels.
+- **Public or private repo.** Public converts GitHub Actions from 2,000 minutes a month to unlimited, at the cost of publishing the code.
 
-## Conventions
+---
 
-- Commit after every meaningful change, however small.
-- Sole contributor is Coflazo. No co-author trailers.
-- Credentials never get committed. `.env` is gitignored and stays that way.
+## Layout
+
+```
+vc_alpha/
+├── db.py                  schema, retention, forget_author
+├── frontier.py            score-gated graph expansion, shared by all sources
+├── theses.py              thesis configs and report templates
+├── llm.py                 free-tier provider ladder, budgets, privacy guard
+├── collect.py             collection CLI
+├── score_all.py           stage 2 CLI
+├── collectors/
+│   ├── base.py            CandidateRecord, Collector protocol
+│   ├── substack.py        archive + recommendation graph
+│   ├── hackernews.py      Algolia search, query → author expansion
+│   └── github.py          repo search, query → org expansion
+└── enrich/embed.py        embedding and cosine scoring
+
+config/theses/*.yaml       the five funds
+docs/PLAN.md               detailed design decisions
+docs/COLLECTORS.md         Reddit and LinkedIn collector designs
+docs/TOOLCHAIN.md          every skill, plugin and model, with sources
+```
