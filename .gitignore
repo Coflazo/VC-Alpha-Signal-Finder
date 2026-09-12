@@ -23,3 +23,6 @@ __pycache__/
 data/
 config/service-account.json
 .env
+*.so
+*.pyd
+build/

@@ -18,6 +18,7 @@ import struct
 
 import httpx
 
+from vc_alpha.fastpath import cosine_blobs
 from vc_alpha.filters import reject
 from vc_alpha.theses import Thesis
 
@@ -229,13 +230,22 @@ def rescore_similarities(
         "SELECT id, embedding, raw_text FROM candidates WHERE embedding IS NOT NULL"
     ).fetchall()
 
-    for row in rows:
-        vec = unpack(row["embedding"])
+    # Flatten every thesis phrasing into one query list so the whole comparison is
+    # a single call into the C++ kernel rather than a Python loop per candidate.
+    flat, owner = [], []
+    for tid, tvecs in vectors.items():
+        for tv in tvecs:
+            flat.append(tv)
+            owner.append(tid)
+
+    blobs = [row["embedding"] for row in rows]
+    scores = cosine_blobs(blobs, flat)
+
+    for row, row_scores in zip(rows, scores):
         best_id, best_score = None, -1.0
-        for tid, tvecs in vectors.items():
+        for tid, s in zip(owner, row_scores):
             if by_id[tid].excluded(row["raw_text"]):
                 continue
-            s = best_similarity(vec, tvecs)
             if s > best_score:
                 best_id, best_score = tid, s
         conn.execute(
