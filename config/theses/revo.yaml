@@ -1,0 +1,61 @@
+id: revo
+name: Revo Capital
+url: https://revo.vc
+
+prose: >
+  We back companies with roots in Türkiye, either Turkish founders or Turkish R&D,
+  and turn deep engineering talent into global category leaders. Seed through growth
+  across Türkiye, Eastern Europe and the Baltics. We care about AI-driven fintech,
+  B2B SaaS, cybersecurity, health tech, energy and gaming. We want technical depth,
+  not a thin wrapper, and founders who intend to compete internationally rather than
+  only at home.
+
+stage_max: growth
+cheque: [500_000, 10_000_000]
+
+must_have: []
+exclude:
+  - consultancy
+  - outsourcing agency
+  - dropshipping
+
+hard_signals:
+  - Founders are Turkish, or the engineering team and R&D sit in Türkiye
+  - Genuine technical depth rather than a thin layer over someone else's model
+  - Ambition beyond the domestic market
+
+report_fields:
+  - key: startup_name
+    label: "Startup name"
+  - key: based_in
+    label: "Based in"
+    hint: "City and country"
+  - key: website
+    label: "Website"
+  - key: founded_in
+    label: "Founded in"
+    hint: "Month and year"
+  - key: founders
+    label: "Founders' names and contact info"
+    hint: "LinkedIn and email are sufficient"
+  - key: turkish_link
+    label: "Türkiye link"
+    hint: "Turkish founders, Turkish R&D, or an engineering team based in Türkiye. State which."
+  - key: technical_depth
+    label: "Technical depth"
+    hint: "What is genuinely hard here, and why a competitor cannot copy it in a weekend"
+  - key: description
+    label: "Description"
+    hint: "Company, stage, product, clients, round, valuation cap, investors, earlier rounds"
+  - key: fit
+    label: "Your input"
+    hint: "Why this is aligned with the investment focus"
+  - key: raising_now
+    label: "Are they currently raising?"
+    type: yes_no
+  - key: raising_when
+    label: "If not, when are they going to start raising?"
+    only_if: 'raising_now == "N"'
+  - key: geographic_focus
+    label: "Geographic focus"
+    hint: "International ambition beyond the domestic market"

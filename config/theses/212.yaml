@@ -1,0 +1,63 @@
+id: "212"
+name: 212
+url: https://212.vc
+
+prose: >
+  We back B2B technology companies that already show demonstrated traction and a
+  precise product-market fit, with founders ready and eager to scale internationally.
+  Tickets are 300K to 1M dollars at early stage, focused on Türkiye and the surrounding
+  region. Sectors are fintech, SaaS, cybersecurity, AI, big data, retailtech, legaltech
+  and regtech, marketplaces, insurtech, agritech and proptech. Unlike a pure pre-seed
+  fund we want evidence: paying customers, usage, retention.
+
+stage_max: series-a
+cheque: [300_000, 1_000_000]
+
+must_have: []
+exclude:
+  - pre-product
+  - idea stage
+  - consumer social
+
+# This thesis wants LATER evidence than the others, which is the thing that makes it
+# distinctive. A post that excites e2vc may be too early for 212.
+hard_signals:
+  - B2B, not consumer
+  - Demonstrated traction, meaning real paying customers or measurable usage
+  - Founders explicitly aiming at international expansion
+
+report_fields:
+  - key: startup_name
+    label: "Startup name"
+  - key: based_in
+    label: "Based in"
+    hint: "City and country"
+  - key: website
+    label: "Website"
+  - key: founded_in
+    label: "Founded in"
+    hint: "Month and year"
+  - key: founders
+    label: "Founders' names and contact info"
+    hint: "LinkedIn and email are sufficient"
+  - key: traction
+    label: "Traction evidence"
+    hint: "Named customers, revenue, usage or retention. This thesis fails without it."
+  - key: pmf_evidence
+    label: "Product-market fit evidence"
+    hint: "What suggests they have found it rather than are still searching"
+  - key: description
+    label: "Description"
+    hint: "Company, stage, product, clients, round, valuation cap, investors, earlier rounds"
+  - key: fit
+    label: "Your input"
+    hint: "Why this is aligned with the investment focus"
+  - key: raising_now
+    label: "Are they currently raising?"
+    type: yes_no
+  - key: raising_when
+    label: "If not, when are they going to start raising?"
+    only_if: 'raising_now == "N"'
+  - key: geographic_focus
+    label: "Geographic focus"
+    hint: "International scaling plans"

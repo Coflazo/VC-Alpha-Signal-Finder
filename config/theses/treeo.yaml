@@ -1,0 +1,65 @@
+id: treeo
+name: Treeo VC
+url: https://treeo.vc
+
+# Embedded once and cached. This is what stage 2 matches against, so it should read
+# like a description of the companies wanted, not like a list of tags.
+prose: >
+  We back immigrant founders building AI-native B2B companies at pre-seed and seed.
+  Founders who moved countries and are building for a global market, often technical,
+  often solving a problem they hit themselves. Sectors we care about are AI, fintech,
+  agtech and biotech. Cheque size is 100K to 1M dollars. The United States has to be
+  on the company's horizon, whether or not they are there yet.
+
+stage_max: seed
+cheque: [100_000, 1_000_000]
+
+# Cheap string gates, applied before embedding. A hard exclude should never cost an
+# inference call.
+must_have: []
+exclude:
+  - recruitment agency
+  - dropshipping
+  - crypto trading bot
+
+# The signals that make this thesis hard. Keyword search cannot see any of these,
+# which is the whole reason stage 3 exists. The triage model is asked about them
+# explicitly rather than left to infer what matters.
+hard_signals:
+  - Founder is an immigrant or has moved countries to build this
+  - Product is AI-native rather than AI bolted onto an existing product
+  - The US is on their horizon as a market
+
+# The report Treeo actually wants. Stage 4 fills these in; stage 5 writes them out.
+# Anything a fund asks for by name is a required field, not a nice-to-have.
+report_fields:
+  - key: startup_name
+    label: Startup name
+  - key: based_in
+    label: Based in
+    hint: City and country
+  - key: website
+    label: Website
+  - key: founded_in
+    label: Founded in
+    hint: Month and year
+  - key: founders
+    label: Founders' names and contact info
+    hint: LinkedIn and email are sufficient
+  - key: description
+    label: Description
+    hint: >
+      Brief on the company, stage, product, clients if any, fundraising round,
+      valuation cap, investors, and the earlier round if they are raising seed
+  - key: fit
+    label: Your input
+    hint: Why this is aligned with the investment focus
+  - key: raising_now
+    label: Are they currently raising?
+    type: yes_no
+  - key: raising_when
+    label: If not, when are they going to start raising?
+    only_if: raising_now == "N"
+  - key: geographic_focus
+    label: Geographic focus
+    hint: The US must be on their horizon

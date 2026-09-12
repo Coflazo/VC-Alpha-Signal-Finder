@@ -1,0 +1,60 @@
+id: e2vc
+name: e2vc
+url: https://e2.vc
+
+prose: >
+  We write large first cheques, up to a million dollars, into pre-seed and idea-stage
+  companies from Central and Eastern Europe, the Baltics and Türkiye that target global
+  markets from day one. Formerly 500 Emerging Europe. We look for globally minded
+  founders building outlier companies, with particular interest in gaming and AI. We
+  are comfortable investing before there is a product, so the founder and the ambition
+  matter more than the traction.
+
+stage_max: pre-seed
+cheque: [250_000, 1_000_000]
+
+must_have: []
+exclude:
+  - local services business
+  - consultancy
+
+hard_signals:
+  - Founder is from Central/Eastern Europe, the Baltics or Türkiye
+  - Global ambition stated from the start, not a domestic business hoping to expand later
+  - Very early, possibly pre-product, so judge the founder rather than the metrics
+
+report_fields:
+  - key: startup_name
+    label: "Startup name"
+  - key: based_in
+    label: "Based in"
+    hint: "City and country"
+  - key: website
+    label: "Website"
+  - key: founded_in
+    label: "Founded in"
+    hint: "Month and year"
+  - key: founders
+    label: "Founders' names and contact info"
+    hint: "LinkedIn and email are sufficient"
+  - key: founder_case
+    label: "Why this founder"
+    hint: "At idea stage this is the investment. Background, unfair advantage, why them."
+  - key: global_from_day_one
+    label: "Global from day one"
+    hint: "Evidence the target market is global rather than domestic"
+  - key: description
+    label: "Description"
+    hint: "Company, stage, product if any, round, valuation cap, investors"
+  - key: fit
+    label: "Your input"
+    hint: "Why this is aligned with the investment focus"
+  - key: raising_now
+    label: "Are they currently raising?"
+    type: yes_no
+  - key: raising_when
+    label: "If not, when are they going to start raising?"
+    only_if: 'raising_now == "N"'
+  - key: geographic_focus
+    label: "Geographic focus"
+    hint: "Global reach from the start"

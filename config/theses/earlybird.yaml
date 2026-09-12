@@ -1,0 +1,60 @@
+id: earlybird
+name: Earlybird Venture Capital
+url: https://earlybird.com
+
+prose: >
+  We invest pre-seed to Series A across Europe, and we like to move before a category
+  is widely understood or even exists. Fund VIII focuses on AI applications, software
+  infrastructure, foundation models and deep tech. We are willing to spend real time
+  upfront understanding a technology, its customers and its market dynamics, which
+  means we are comfortable with companies that are hard to categorise today. Separate
+  vehicles cover Western Europe, Emerging Europe, and health.
+
+stage_max: series-a
+cheque: [500_000, 15_000_000]
+
+must_have: []
+exclude:
+  - agency
+  - reseller
+
+hard_signals:
+  - Technically deep, particularly infrastructure, foundation models or deep tech
+  - Early enough that the category is not yet well defined
+  - European, whether Western or Emerging Europe
+
+report_fields:
+  - key: startup_name
+    label: "Startup name"
+  - key: based_in
+    label: "Based in"
+    hint: "City and country"
+  - key: website
+    label: "Website"
+  - key: founded_in
+    label: "Founded in"
+    hint: "Month and year"
+  - key: founders
+    label: "Founders' names and contact info"
+    hint: "LinkedIn and email are sufficient"
+  - key: category
+    label: "Category"
+    hint: "What this is, in plain words. If it is hard to name, say so; that is often the point."
+  - key: technical_moat
+    label: "Technical moat"
+    hint: "The hard part, and why it stays hard"
+  - key: description
+    label: "Description"
+    hint: "Company, stage, product, clients, round, valuation cap, investors, earlier rounds"
+  - key: fit
+    label: "Your input"
+    hint: "Why this is aligned with the investment focus"
+  - key: raising_now
+    label: "Are they currently raising?"
+    type: yes_no
+  - key: raising_when
+    label: "If not, when are they going to start raising?"
+    only_if: 'raising_now == "N"'
+  - key: geographic_focus
+    label: "Geographic focus"
+    hint: "Which Earlybird vehicle fits: West, East or Health"

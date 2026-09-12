@@ -19,3 +19,5 @@ data/
 build/
 __pycache__/
 .venv/
+.venv/
+uv.lock
