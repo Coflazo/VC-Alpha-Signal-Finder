@@ -80,11 +80,20 @@ _NOT_A_COMPANY = {
     # press
     "theverge.com", "techcrunch.com", "wired.com", "arstechnica.com", "nytimes.com",
     "bloomberg.com", "reuters.com", "forbes.com", "businessinsider.com",
-    # docs, hosting, and shorteners
-    "docs.google.com", "drive.google.com", "notion.so", "notion.site", "github.io",
-    "vercel.app", "netlify.app", "herokuapp.com", "pages.dev", "imgur.com",
+    # docs and shorteners
+    "docs.google.com", "drive.google.com", "notion.so", "imgur.com",
     "archive.org", "web.archive.org", "en.wikipedia.org", "bit.ly", "t.co",
 }
+
+# Hosting platforms, matched by suffix: a project at myproject.vercel.app is
+# hosted there, it does not own the domain. Exact matching missed every subdomain,
+# which is the only form these ever appear in.
+_HOSTING_SUFFIXES = (
+    ".substack.com", ".vercel.app", ".netlify.app", ".herokuapp.com", ".pages.dev",
+    ".github.io", ".gitlab.io", ".notion.site", ".webflow.io", ".framer.website",
+    ".myshopify.com", ".wordpress.com", ".blogspot.com", ".medium.com",
+    ".streamlit.app", ".onrender.com", ".fly.dev", ".workers.dev", ".replit.app",
+)
 
 _NOISE_WORDS = re.compile(
     r"\b(inc|llc|ltd|gmbh|bv|ab|oy|corp|co|the|a|an)\b\.?", re.I
@@ -105,7 +114,9 @@ def normalise_domain(url: str | None) -> str | None:
         host = (urlparse(url).hostname or "").lower().removeprefix("www.")
     except ValueError:
         return None
-    if not host or host in _NOT_A_COMPANY or host.endswith(".substack.com"):
+    if not host or host in _NOT_A_COMPANY:
+        return None
+    if host.endswith(_HOSTING_SUFFIXES):
         return None
     return host
 
