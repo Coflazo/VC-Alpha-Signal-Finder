@@ -42,10 +42,19 @@ def test_noise_is_dropped_with_a_reason(text, expected):
     "Ask HN: How do we build a team? (bootstrapped B2B startup)",
     "Ask HN: I built a CLI for this, would anyone else use it?",
     "Ask HN: we launched last month and growth stalled, what would you try?",
-    "Ask HN: When you sell your company, how do you receive the money?",
 ])
 def test_a_founder_asking_a_question_is_still_a_founder(text):
     assert reject(text, now=NOW) is None, "builder language must override the question filter"
+
+
+def test_an_ambiguous_question_is_left_dropped_on_purpose():
+    """"When you sell your company" reads as hypothetical, not "I am selling mine".
+
+    Widening the builder pattern to catch second-person phrasing would admit every
+    advice-seeker in the forum. One ambiguous miss is the better trade, and pinning
+    it here records that it is a decision rather than an oversight.
+    """
+    assert reject("Ask HN: When you sell your company, how do you receive the money?").filter == "question"
 
 
 def test_genuinely_old_posts_are_dropped():
