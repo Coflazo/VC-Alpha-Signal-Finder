@@ -46,6 +46,9 @@ class Thesis:
     must_have: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
     hard_signals: list[str] = field(default_factory=list)
+    # Per-signal weights. A fund tunes its own ranking by editing numbers here;
+    # nothing is retrained and no other fund is affected.
+    weights: dict[str, float] = field(default_factory=dict)
     report_fields: list[ReportField] = field(default_factory=list)
 
     def vectors_text(self) -> list[str]:

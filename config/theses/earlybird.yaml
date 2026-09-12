@@ -30,6 +30,16 @@ hard_signals:
   - Early enough that the category is not yet well defined
   - European, whether Western or Emerging Europe
 
+# Earlybird deliberately moves before a category exists, so an unusually
+# high weight on the founder and a low tolerance for anything already covered.
+weights:
+  founder_quality: 0.30
+  thesis_fit: 0.30
+  is_building: 0.20
+  timing: 0.15
+  reachable: 0.05
+  too_late: 0.35
+
 report_fields:
   - key: startup_name
     label: "Startup name"

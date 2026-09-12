@@ -33,6 +33,16 @@ hard_signals:
   - Demonstrated traction, meaning real paying customers or measurable usage
   - Founders explicitly aiming at international expansion
 
+# 212 explicitly wants demonstrated traction and product-market fit, so a
+# real shipped company weighs heavily and being early matters less.
+weights:
+  is_building: 0.35
+  thesis_fit: 0.30
+  founder_quality: 0.15
+  timing: 0.15
+  reachable: 0.05
+  too_late: 0.20
+
 report_fields:
   - key: startup_name
     label: "Startup name"

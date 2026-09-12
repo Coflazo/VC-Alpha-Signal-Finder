@@ -30,6 +30,16 @@ hard_signals:
   - Global ambition stated from the start, not a domestic business hoping to expand later
   - Very early, possibly pre-product, so judge the founder rather than the metrics
 
+# e2vc invests at idea stage, sometimes pre-product. The founder is the
+# investment, and "is something being built yet" matters less than usual.
+weights:
+  founder_quality: 0.40
+  thesis_fit: 0.30
+  is_building: 0.10
+  timing: 0.15
+  reachable: 0.05
+  too_late: 0.40
+
 report_fields:
   - key: startup_name
     label: "Startup name"

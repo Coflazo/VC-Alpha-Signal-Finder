@@ -31,6 +31,16 @@ hard_signals:
   - Genuine technical depth rather than a thin layer over someone else's model
   - Ambition beyond the domestic market
 
+# Revo runs seed through growth, so it tolerates later companies better
+# than the pre-seed funds and cares most about fit and technical depth.
+weights:
+  thesis_fit: 0.35
+  founder_quality: 0.25
+  is_building: 0.25
+  timing: 0.10
+  reachable: 0.05
+  too_late: 0.15
+
 report_fields:
   - key: startup_name
     label: "Startup name"

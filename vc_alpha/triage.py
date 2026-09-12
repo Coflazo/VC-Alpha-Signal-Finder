@@ -18,31 +18,14 @@ import logging
 import sqlite3
 
 from vc_alpha.llm import NoCapacityLeft, Router, Sending
+from vc_alpha.signals import SIGNALS, combine, schema
 from vc_alpha.theses import Thesis
 
 log = logging.getLogger(__name__)
 
 ACCEPT_CONFIDENCE = 0.7
 
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "is_startup": {"type": "boolean"},
-        "stage": {
-            "type": "string",
-            "enum": ["idea", "prototype", "pre-seed", "seed", "later", "unknown"],
-        },
-        "thesis_match": {"type": "number"},
-        "founder_signal": {"type": "boolean"},
-        "signals_present": {"type": "array", "items": {"type": "string"}},
-        "reasoning": {"type": "string"},
-        "confidence": {"type": "number"},
-    },
-    "required": [
-        "is_startup", "stage", "thesis_match", "founder_signal",
-        "signals_present", "reasoning", "confidence",
-    ],
-}
+SCHEMA = schema()
 
 PROMPT = """You are screening public posts for an early-stage venture fund.
 
@@ -57,22 +40,28 @@ The post:
 {text}
 ---
 
-Answer as JSON only:
-- is_startup: is a real company or product being built here? A person asking for
-  advice, a journalist writing about the sector, or a hobby project is not.
-- stage: idea, prototype, pre-seed, seed, later, or unknown.
-- thesis_match: 0 to 1, how well this fits the thesis above.
-- founder_signal: is the author the one building it, rather than writing about it?
-- signals_present: which of the listed signals the post actually evidences. Only
-  ones you can point at in the text. An empty list is a fine answer.
-- reasoning: one or two sentences, citing what in the post led you there.
-- confidence: 0 to 1, how sure you are. Be honest; low confidence is routed to a
-  human rather than held against you."""
+Score each of these independently, 0 to 1. They are separate questions: a post can
+be a real company that does not fit this fund, or a perfect fit that is five years
+too late.
+
+{questions}
+
+Also give `stage` (idea, prototype, pre-seed, seed, later, unknown) and a one
+sentence `summary`.
+
+For every signal include a `quote`: the verbatim words from the post that led you
+to that score. If nothing in the text supports it, score it low and leave the quote
+empty. Do not paraphrase and do not invent a quote — an analyst will check it
+against the source, and a fabricated one is worse than a low score."""
 
 
 def build_prompt(text: str, thesis: Thesis, max_chars: int = 6000) -> str:
     signals = "\n".join(f"- {s}" for s in thesis.hard_signals) or "- (none specified)"
-    return PROMPT.format(prose=thesis.prose.strip(), signals=signals, text=text[:max_chars])
+    questions = "\n".join(f"- {s.key}: {s.question}" for s in SIGNALS)
+    return PROMPT.format(
+        prose=thesis.prose.strip(), signals=signals,
+        questions=questions, text=text[:max_chars],
+    )
 
 
 def triage_one(
@@ -128,18 +117,22 @@ def run(
             log.warning("unparseable reply for %s: %s", row["id"][:8], e)
             continue
 
+        scores = {
+            s.key: float((verdict.get(s.key) or {}).get("score") or 0.0)
+            for s in SIGNALS
+        }
         conn.execute(
             """UPDATE candidates
                SET triage_json = ?, is_startup = ?, stage_guess = ?, confidence = ?
                WHERE id = ?""",
             (json.dumps(verdict),
-             int(bool(verdict.get("is_startup"))),
+             int(scores["is_building"] >= 0.5),
              verdict.get("stage"),
-             float(verdict.get("confidence") or 0),
+             combine(scores, thesis.weights),
              row["id"]),
         )
         conn.commit()
         stats["triaged"] += 1
-        stats["startups"] += int(bool(verdict.get("is_startup")))
+        stats["startups"] += int(scores["is_building"] >= 0.5)
 
     return stats

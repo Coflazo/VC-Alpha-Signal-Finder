@@ -39,6 +39,16 @@ hard_signals:
 
 # The report Treeo actually wants. Stage 4 fills these in; stage 5 writes them out.
 # Anything a fund asks for by name is a required field, not a nice-to-have.
+# Treeo backs immigrant founders at pre-seed/seed, where the person is
+# most of the investment and traction barely exists yet.
+weights:
+  founder_quality: 0.35
+  thesis_fit: 0.30
+  is_building: 0.20
+  timing: 0.10
+  reachable: 0.05
+  too_late: 0.35
+
 report_fields:
   - key: startup_name
     label: Startup name
