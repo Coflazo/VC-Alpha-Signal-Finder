@@ -1,19 +1,27 @@
-"""The router is what makes 'free forever' true rather than hoped for, so its
-failure paths are tested rather than assumed.
+"""The router.
+
+It is now a thin wrapper: LiteLLM handles providers, fallbacks, retries and rate
+limits, and what remains here is what no gateway can know — the privacy
+classification and the free-tier ceiling. So these tests cover exactly those two
+things, plus the reply parsing.
+
+The previous version of this file tested hand-rolled failover and rate-limit header
+parsing. Those tests are gone because the code they described is gone, and it was
+replaced precisely because four separate bugs proved it was the wrong thing to own.
 """
 
+import os
 import sqlite3
 
-import httpx
 import pytest
 
 from vc_alpha.llm import (
-    Budget, NoCapacityLeft, PrivateTextRefused, Provider, Router, Sending,
+    LADDER, Budget, NoCapacityLeft, PrivateTextRefused, Provider, Router, Sending,
     _extract_json,
 )
 
-A = Provider("a", "KEY_A", "https://a.test/v1", "model-a", daily_requests=2)
-B = Provider("b", "KEY_B", "https://b.test/v1", "model-b", daily_requests=5)
+A = Provider("a", "KEY_A", "fake/model-a", daily_requests=2)
+B = Provider("b", "KEY_B", "fake/model-b", daily_requests=5)
 
 
 @pytest.fixture
@@ -29,71 +37,34 @@ def keys(monkeypatch):
     monkeypatch.setenv("KEY_B", "y")
 
 
-def router(conn, responder):
-    r = Router(conn, ladder=[A, B])
-    r._call_one = responder
-    return r
+# --- the privacy guard, which is the whole reason this file still exists ------
 
 
 def test_private_text_is_refused_before_any_network_call(conn):
     """The guard exists so a WhatsApp message cannot reach a training-on-data tier."""
-    def explode(*a, **k):
-        raise AssertionError("a private message reached the network")
-
     with pytest.raises(PrivateTextRefused):
-        router(conn, explode).complete(
+        Router(conn, ladder=[A, B]).complete(
             "Ayse: my friend just raised a seed round", sending=Sending.PRIVATE
         )
 
 
-def test_redacted_fragments_are_allowed_through(conn):
-    """A stripped fragment is the agreed path for private sources."""
-    out = router(conn, lambda p, prompt, schema: "ok").complete(
-        "a company called Acme raised a seed round", sending=Sending.REDACTED
-    )
-    assert out == "ok"
+def test_the_refusal_says_what_to_do_instead(conn):
+    with pytest.raises(PrivateTextRefused, match="redact"):
+        Router(conn, ladder=[A]).complete("private", sending=Sending.PRIVATE)
 
 
-def test_falls_over_to_the_next_provider_on_429(conn):
-    calls = []
-
-    def responder(p, prompt, schema):
-        calls.append(p.name)
-        if p.name == "a":
-            req = httpx.Request("POST", "https://a.test")
-            raise httpx.HTTPStatusError(
-                "429", request=req, response=httpx.Response(429, request=req)
-            )
-        return "second provider answered"
-
-    out = router(conn, responder).complete("public post", sending=Sending.PUBLIC)
-    assert calls == ["a", "b"]
-    assert out == "second provider answered"
+# --- the budget, which makes "free forever" enforced rather than hoped for ----
 
 
-def test_a_rate_limited_provider_is_skipped_next_time(conn):
-    """A 429 is better evidence than our own counter, so trust it and stop asking."""
-    r = router(conn, lambda p, *a: (_ for _ in ()).throw(
-        httpx.HTTPStatusError(
-            "429",
-            request=httpx.Request("POST", "https://a.test"),
-            response=httpx.Response(429, request=httpx.Request("POST", "https://a.test")),
-        )
-    ))
-    with pytest.raises(NoCapacityLeft):
-        r.complete("public", sending=Sending.PUBLIC)
-    assert r.available() == []
-
-
-def test_budget_stops_a_provider_at_its_daily_limit(conn):
-    r = router(conn, lambda p, prompt, schema: "ok")
+def test_a_provider_is_dropped_once_its_daily_allowance_is_spent(conn):
+    r = Router(conn, ladder=[A, B])
     assert [p.name for p in r.available()] == ["a", "b"]
     for _ in range(A.daily_requests):
-        r.complete("public", sending=Sending.PUBLIC)
-    assert [p.name for p in r.available()] == ["b"], "exhausted provider still offered"
+        r.budget.note("a")
+    assert [p.name for p in r.available()] == ["b"], "a spent provider was still offered"
 
 
-def test_budget_survives_a_restart(conn):
+def test_usage_survives_a_restart(conn):
     Budget(conn).note("a")
     assert Budget(conn).used("a") == 1, "usage did not persist across instances"
 
@@ -103,20 +74,48 @@ def test_unconfigured_providers_are_not_offered(conn, monkeypatch):
     assert [p.name for p in Router(conn, ladder=[A, B]).available()] == ["b"]
 
 
-def test_raises_when_nothing_is_left(conn, monkeypatch):
+def test_running_out_says_which_free_keys_to_get(conn, monkeypatch):
     monkeypatch.delenv("KEY_A")
     monkeypatch.delenv("KEY_B")
-    with pytest.raises(NoCapacityLeft):
+    with pytest.raises(NoCapacityLeft, match="GROQ_API_KEY"):
         Router(conn, ladder=[A, B]).complete("public", sending=Sending.PUBLIC)
 
 
-def test_transport_errors_do_not_end_the_run(conn):
-    def responder(p, prompt, schema):
-        if p.name == "a":
-            raise httpx.ConnectError("dns died")
-        return "b answered"
+def test_local_needs_no_key_so_the_product_works_with_nothing_configured():
+    """Requiring an env var for a local endpoint would mean a machine with no API
+    keys had no provider at all, which defeats shipping a local fallback."""
+    ollama = next(p for p in LADDER if p.local)
+    assert ollama.configured
 
-    assert router(conn, responder).complete("public", sending=Sending.PUBLIC) == "b answered"
+
+def test_every_shipped_provider_is_a_free_tier():
+    assert all(p.daily_requests > 0 for p in LADDER)
+    assert {p.name for p in LADDER} >= {"gemini", "groq", "openrouter", "ollama"}
+
+
+def test_model_names_are_overridable_by_environment():
+    """Model names are the most perishable thing in the file: a retired one returning
+    404 is what broke the previous implementation.
+
+    Run in a subprocess rather than reloading the module in-process. Reloading
+    rebuilds the Sending enum, so any module that already imported it holds a
+    different class and `sending is Sending.PRIVATE` silently stops matching —
+    which quietly disabled the privacy guard in another test file.
+    """
+    import subprocess
+    import sys
+
+    out = subprocess.run(
+        [sys.executable, "-c",
+         "from vc_alpha.llm import LADDER;"
+         "print(next(p.model for p in LADDER if p.name == 'groq'))"],
+        env={**os.environ, "GROQ_MODEL": "groq/something-else"},
+        capture_output=True, text=True,
+    )
+    assert out.stdout.strip() == "groq/something-else", out.stderr[-300:]
+
+
+# --- reply parsing -----------------------------------------------------------
 
 
 @pytest.mark.parametrize("reply", [
@@ -125,69 +124,11 @@ def test_transport_errors_do_not_end_the_run(conn):
     'The answer is {"ok": true} — hope that helps',
 ])
 def test_json_is_recovered_from_chatty_replies(reply):
-    """Providers differ on honouring a schema. One repair beats spending a retry."""
+    """Some providers wrap the object in prose even under a schema. One repair beats
+    a retry, which would spend an allowance the product is trying not to spend."""
     assert _extract_json(reply) == {"ok": True}
 
 
-# --- rate limiting, from a real 429 ------------------------------------------
-
-
-def _resp(headers):
-    return httpx.Response(429, headers=headers,
-                          request=httpx.Request("POST", "https://x/y"))
-
-
-def test_a_token_throttle_is_not_daily_exhaustion():
-    """The bug this fixes: Groq's free tier limits 8,000 tokens/min against 1,000
-    requests/day, so the binding constraint is tokens. Treating a sub-second token
-    throttle as daily exhaustion wrote the provider off for 24 hours after five
-    calls."""
-    from vc_alpha.llm import RateLimited
-    e = RateLimited.from_response(_resp({
-        "x-ratelimit-remaining-tokens": "0",
-        "x-ratelimit-reset-tokens": "585ms",
-        "x-ratelimit-remaining-requests": "997",
-        "x-ratelimit-reset-requests": "4m19.2s",
-    }))
-    assert e.daily is False
-    assert e.retry_after < 1.0, "a 585ms wait must not be read as four minutes"
-
-
-def test_an_empty_request_budget_is_daily_exhaustion():
-    from vc_alpha.llm import RateLimited
-    e = RateLimited.from_response(_resp({
-        "x-ratelimit-remaining-requests": "0",
-        "x-ratelimit-reset-requests": "4m19.2s",
-    }))
-    assert e.daily is True
-
-
-def test_explicit_retry_after_wins():
-    from vc_alpha.llm import RateLimited
-    assert RateLimited.from_response(_resp({"retry-after": "12"})).retry_after == 12.0
-
-
-def test_a_429_with_no_headers_still_gives_a_sane_wait():
-    from vc_alpha.llm import RateLimited
-    e = RateLimited.from_response(_resp({}))
-    assert 0 < e.retry_after <= 30 and e.daily is False
-
-
-def test_reset_requests_alone_is_not_read_as_a_retry_after():
-    """It appears on successful responses too; it is when the window rolls over,
-    not an instruction to wait."""
-    from vc_alpha.llm import RateLimited
-    e = RateLimited.from_response(_resp({
-        "x-ratelimit-remaining-requests": "500",
-        "x-ratelimit-reset-requests": "4m19.2s",
-    }))
-    assert e.retry_after < 30 and e.daily is False
-
-
-def test_a_retired_model_picks_a_replacement_from_the_catalogue():
-    from vc_alpha.llm import _pick_chat_model
-    catalogue = ["whisper-large-v3", "openai/gpt-oss-120b", "qwen/qwen3.8-27b",
-                 "meta-llama/llama-prompt-guard-2-22m"]
-    choice = _pick_chat_model(catalogue, "openai/gpt-oss-20b")
-    assert choice == "openai/gpt-oss-120b", "should prefer the same family"
-    assert "whisper" not in _pick_chat_model(catalogue, "nothing-alike")
+def test_an_unparseable_reply_raises_rather_than_guessing():
+    with pytest.raises(ValueError):
+        _extract_json("no object here at all")
