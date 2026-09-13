@@ -520,6 +520,7 @@ async function loadSheet() {
 
 LOADERS.setup = async () => {
   loadHardware();
+  loadRetention();
   const { items, stored_in } = await api("/api/setup");
   $("#setup-where").textContent =
     `Saved to ${stored_in}, readable only by you. Keys are never shown again once saved.`;
@@ -596,6 +597,46 @@ LOADERS.setup = async () => {
     return row;
   }));
 };
+
+// Two steps on purpose: erasure is irreversible, so the scope is shown before
+// the button that does it ever appears.
+$("#forget-check").onclick = async () => {
+  const author = $("#forget-name").value.trim();
+  $("#forget-do").hidden = true;
+  if (!author) { $("#forget-status").textContent = "Enter a name first."; return; }
+  try {
+    const r = await api("/api/forget", {
+      method: "POST", body: JSON.stringify({ author, confirm: false }),
+    });
+    const w = r.would_delete;
+    $("#forget-status").textContent =
+      `${w.candidates} candidates, ${w.whatsapp_messages} messages, plus their profile.`;
+    $("#forget-do").hidden = false;
+  } catch (e) { $("#forget-status").textContent = e.message; }
+};
+
+$("#forget-do").onclick = async () => {
+  const author = $("#forget-name").value.trim();
+  try {
+    const r = await api("/api/forget", {
+      method: "POST", body: JSON.stringify({ author, confirm: true }),
+    });
+    $("#forget-status").textContent = `${r.detail} ${r.deleted} rows removed.`;
+    $("#forget-do").hidden = true;
+    $("#forget-name").value = "";
+    LOADERS.setup();
+  } catch (e) { $("#forget-status").textContent = e.message; }
+};
+
+async function loadRetention() {
+  try {
+    const r = await api("/api/retention");
+    $("#retention-note").textContent =
+      `Everything collected is deleted ${r.retention_days} days after it is found. ` +
+      `${r.total.toLocaleString()} records held, ${r.expiring_within_7_days} expiring this week. ` +
+      `The deletion job runs when this app starts and before every run.`;
+  } catch (e) { $("#retention-note").textContent = "Could not read the retention policy."; }
+}
 
 async function loadHardware() {
   try {

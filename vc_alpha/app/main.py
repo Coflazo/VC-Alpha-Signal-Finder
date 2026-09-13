@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import sqlite3
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -26,7 +27,7 @@ from pydantic import BaseModel
 from vc_alpha import entities, env, founders, paths, score, secrets, theses, warmpath
 from vc_alpha.app import sheets
 from vc_alpha.app.jobs import runner
-from vc_alpha.db import connect
+from vc_alpha.db import connect, expiring_within, forget_author, purge_expired
 from vc_alpha.enrich.embed import EMBEDDERS
 from vc_alpha.llm import LADDER, Router, Sending
 from vc_alpha.quant.information import (
@@ -51,7 +52,24 @@ LOCAL_ONLY = {
     "inbound": "a fund's own deal flow stays on the fund's machine",
 }
 
-app = FastAPI(title="VC Alpha Signal Finder")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Enforce retention when the app starts.
+
+    The app is where most people will actually run this, so it is the one place
+    the deletion job is guaranteed to happen even for a fund that never touches
+    the command line or the scheduled workflows.
+    """
+    try:
+        gone = purge_expired(db())
+        if gone:
+            log.info("retention: removed %d expired rows on startup", gone)
+    except Exception as e:                        # never block startup on this
+        log.warning("retention job did not run: %s", e)
+    yield
+
+
+app = FastAPI(title="VC Alpha Signal Finder", lifespan=lifespan)
 
 
 def db() -> sqlite3.Connection:
@@ -789,6 +807,56 @@ def test_key(edit: KeyEdit) -> dict:
         return {"ok": True, "detail": f"{provider.model} answered"}
     except Exception as e:
         return {"ok": False, "detail": str(e)[:200]}
+
+
+class ForgetRequest(BaseModel):
+    author: str
+    confirm: bool = False
+
+
+@app.post("/api/forget")
+def forget(req: ForgetRequest) -> dict:
+    """Erase one person from every table, on request.
+
+    GDPR gives a person the right to be erased and the fund the obligation to do
+    it. Before this the only route was opening a Python shell and importing a
+    function, which is not a procedure a fund can follow under a deadline.
+
+    Called without `confirm` it reports what would go, so the operator sees the
+    scope before anything is deleted.
+    """
+    author = req.author.strip()
+    if not author:
+        raise HTTPException(400, "name the person to erase")
+
+    conn = db()
+    if not req.confirm:
+        counts = {
+            "candidates": conn.execute(
+                "SELECT COUNT(*) FROM candidates WHERE author = ?", (author,)
+            ).fetchone()[0],
+            "whatsapp_messages": conn.execute(
+                "SELECT COUNT(*) FROM whatsapp_messages WHERE sender = ?", (author,)
+            ).fetchone()[0],
+        }
+        return {"confirmed": False, "would_delete": counts,
+                "detail": f"Erasing {author} removes these rows permanently."}
+
+    return {"confirmed": True, "deleted": forget_author(conn, author),
+            "detail": f"{author} has been erased."}
+
+
+@app.get("/api/retention")
+def retention() -> dict:
+    """What the retention policy is and what it is about to remove."""
+    from vc_alpha.db import RETENTION_DAYS
+
+    conn = db()
+    return {
+        "retention_days": RETENTION_DAYS,
+        "expiring_within_7_days": expiring_within(conn, 7),
+        "total": conn.execute("SELECT COUNT(*) FROM candidates").fetchone()[0],
+    }
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

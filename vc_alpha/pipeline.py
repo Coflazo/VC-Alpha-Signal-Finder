@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 
 from vc_alpha import env, paths, score, theses, triage
-from vc_alpha.db import connect
+from vc_alpha.db import connect, purge_expired
 from vc_alpha.enrich.embed import survivors_by_rank
 from vc_alpha.llm import NoCapacityLeft, Router, Sending, set_a_key
 from vc_alpha.output.report import research, write_csv
@@ -47,6 +47,7 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     conn = connect(args.db)
+    purge_expired(conn)
     active = theses.load_all()
     if not active:
         raise SystemExit(theses.NO_FUNDS)

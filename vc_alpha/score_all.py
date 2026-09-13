@@ -10,7 +10,7 @@ import argparse
 import logging
 
 from vc_alpha import env, theses
-from vc_alpha.db import connect
+from vc_alpha.db import connect, purge_expired
 from vc_alpha.enrich.embed import DEFAULT_THRESHOLD, Embedder, score_pending
 
 
@@ -26,6 +26,7 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     conn = connect(args.db)
+    purge_expired(conn)
     active = theses.load_all()
     if not active:
         raise SystemExit(theses.NO_FUNDS)

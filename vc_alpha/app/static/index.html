@@ -220,6 +220,22 @@
       <p class="note" id="setup-where"></p>
       <div id="setup-list"></div>
     </section>
+
+    <section class="panel">
+      <h2>Privacy and retention</h2>
+      <p class="note" id="retention-note">Checking…</p>
+      <p class="note">
+        If someone asks to be removed, erase them here. This deletes their posts,
+        messages, activity history and profile, and cannot be undone.
+      </p>
+      <div class="controls">
+        <input id="forget-name" placeholder="Name or handle, exactly as stored"
+               aria-label="Person to erase">
+        <button class="act" id="forget-check">See what would go</button>
+        <button class="act danger" id="forget-do" hidden>Erase permanently</button>
+        <span class="sub" id="forget-status"></span>
+      </div>
+    </section>
   </section>
 
 </main>

@@ -164,6 +164,33 @@ def review_candidate(url: str, worth_a_look: bool) -> dict[str, Any]:
 
 
 @mcp.tool()
+def forget_person(name: str, confirm: bool = False) -> dict[str, Any]:
+    """Erase one person from every table, on request.
+
+    For an erasure request under GDPR Article 17. Removes their posts, their
+    WhatsApp messages, their activity history, their entity profile and every
+    piece of evidence drawn from them.
+
+    Reports the scope first. Nothing is deleted unless `confirm` is true, because
+    this is irreversible and an assistant should not be able to do it by
+    misreading a sentence.
+    """
+    from vc_alpha.db import forget_author
+
+    conn = _db()
+    name = name.strip()
+    if not name:
+        return {"error": "Name the person to erase."}
+
+    scope = conn.execute(
+        "SELECT COUNT(*) FROM candidates WHERE author = ?", (name,)).fetchone()[0]
+    if not confirm:
+        return {"confirmed": False, "candidates": scope,
+                "next_step": f"Call again with confirm=true to erase {name}."}
+    return {"confirmed": True, "deleted": forget_author(conn, name)}
+
+
+@mcp.tool()
 def acceptance_threshold(investments_left: int = 14, months_left: int = 22,
                          deals_per_month: float = 8.0) -> dict[str, Any]:
     """How selective a fund should be right now, given capital and time remaining.

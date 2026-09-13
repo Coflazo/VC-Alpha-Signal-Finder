@@ -19,7 +19,7 @@ from vc_alpha.collectors.linkedin import LinkedInCollector
 from vc_alpha.collectors.reddit import RedditCollector
 from vc_alpha.collectors.substack import SubstackCollector
 from vc_alpha.collectors.whatsapp import WhatsAppCollector
-from vc_alpha.db import connect, now, retention_until
+from vc_alpha.db import connect, now, purge_expired, retention_until
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +79,7 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     conn = connect(args.db)
+    purge_expired(conn)
 
     if args.suggestions:
         rows = frontier.suggestions(conn, args.suggestions)

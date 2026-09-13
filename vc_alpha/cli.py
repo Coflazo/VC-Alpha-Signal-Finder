@@ -189,6 +189,60 @@ def cmd_report(args) -> int:
     return 0
 
 
+# --- privacy -----------------------------------------------------------------
+
+
+def cmd_forget(args) -> int:
+    """Erase one person, on request. GDPR Article 17, as a command.
+
+    The only route to this used to be opening a Python shell and importing a
+    function, which PRIVACY.md actually instructed a fund to do. That is not a
+    procedure anyone can follow under a 30-day statutory deadline.
+    """
+    from vc_alpha.db import connect, forget_author
+
+    conn = connect(args.db)
+    author = args.author.strip()
+
+    scope = {
+        "candidates": conn.execute(
+            "SELECT COUNT(*) FROM candidates WHERE author = ?", (author,)).fetchone()[0],
+        "whatsapp": conn.execute(
+            "SELECT COUNT(*) FROM whatsapp_messages WHERE sender = ?",
+            (author,)).fetchone()[0],
+    }
+
+    if not args.yes:
+        data = {"author": author, "would_delete": scope, "deleted": 0}
+        _emit(data, args.json, lambda d: print(
+            f"\n  {author}\n"
+            f"    {d['would_delete']['candidates']:>4} candidates\n"
+            f"    {d['would_delete']['whatsapp']:>4} WhatsApp messages\n"
+            f"    plus their entity profile and every piece of evidence from them\n\n"
+            f"  Nothing deleted. Re-run with --yes to erase.\n"))
+        return 0
+
+    deleted = forget_author(conn, author)
+    data = {"author": author, "would_delete": scope, "deleted": deleted}
+    _emit(data, args.json,
+          lambda d: print(f"\n  Erased {author}: {d['deleted']} rows removed.\n"))
+    return 0
+
+
+def cmd_purge(args) -> int:
+    """Run the retention job now. It also runs at the start of every other command."""
+    from vc_alpha.db import RETENTION_DAYS, connect, expiring_within, purge_expired
+
+    conn = connect(args.db)
+    gone = purge_expired(conn)
+    data = {"deleted": gone, "retention_days": RETENTION_DAYS,
+            "expiring_within_7_days": expiring_within(conn, 7)}
+    _emit(data, args.json, lambda d: print(
+        f"\n  Deleted {d['deleted']} rows past their {d['retention_days']}-day "
+        f"retention.\n  {d['expiring_within_7_days']} more expire within a week.\n"))
+    return 0
+
+
 # --- setup and serving -------------------------------------------------------
 
 
@@ -257,6 +311,13 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--no-download", action="store_true")
 
     sub.add_parser("mcp", help="run as an MCP server for Claude or Codex")
+
+    f = sub.add_parser("forget", help="erase one person, on request (GDPR)")
+    f.add_argument("author", help="the name or handle exactly as stored")
+    f.add_argument("--yes", action="store_true",
+                   help="actually delete; without it, only report what would go")
+
+    sub.add_parser("purge", help="delete everything past its retention date")
     return p
 
 
@@ -264,6 +325,7 @@ COMMANDS = {
     "serve": cmd_serve, "status": cmd_status, "collect": cmd_collect,
     "score": cmd_score, "run": cmd_run, "entities": cmd_entities,
     "report": cmd_report, "setup": cmd_setup, "mcp": cmd_mcp,
+    "forget": cmd_forget, "purge": cmd_purge,
 }
 
 

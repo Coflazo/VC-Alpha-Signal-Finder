@@ -194,3 +194,5 @@ a { color: var(--primary); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+.act.danger { color: var(--bad); border-color: currentColor; }

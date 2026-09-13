@@ -29,10 +29,12 @@ usual basis. It is not automatic, and it obliges you to:
 
 - collect only what you actually use for scoring — the software stores extracted
   fields and source URLs rather than whole page dumps wherever a record suffices
-- set a retention period and enforce it — `retention_until` is on every record from
-  the first migration, and `purge_expired()` deletes past it
-- be able to erase an individual on request — `forget_author()` removes a person
-  from every table through a single code path
+- set a retention period and enforce it — every record carries `retention_until`,
+  and the deletion job runs when the app starts and before every collect, score
+  and report run, so the period is enforced rather than intended
+- be able to erase an individual on request — one command removes a person from
+  every table, including their entity profile and every piece of evidence drawn
+  from them
 - keep a record of what you hold and why — the database is yours and is inspectable
 
 Run a legitimate-interest assessment before deploying. This software gives you the
@@ -65,10 +67,28 @@ fund that wants nothing at all to leave, run only local models and accept the sp
 
 ## Deletion
 
-```python
-from vc_alpha.db import connect, forget_author, purge_expired
-forget_author(connect("data/candidates.sqlite"), "person name")
-purge_expired(connect("data/candidates.sqlite"))
+A person asking to be erased is a 30-day statutory deadline, so this is a command
+and a button rather than something you write code for.
+
+```bash
+vc-alpha forget "person name"          # shows exactly what would go
+vc-alpha forget "person name" --yes    # erases it
+vc-alpha purge                         # delete everything past its retention date
 ```
 
-Both are single calls by design, so a request has one answer rather than several.
+The same thing is in the app, under **Setup → Privacy and retention**, which also
+shows how many records expire this week. Claude and Codex can do it over MCP with
+the `forget_person` tool, which requires an explicit confirmation.
+
+**What erasure covers.** Their candidates, their WhatsApp messages, their activity
+history, their entity profile, and every piece of evidence drawn from their posts —
+including quotes attributed to them inside someone else's dossier. An earlier
+version cleared the first three and left the profile, which meant a fund could
+report an erasure complete while the person's name, handle and score were still in
+the database. If you ran a version before this one, re-run `vc-alpha forget` for
+anybody you have previously erased.
+
+**What it does not cover.** Anything already written out to your Google Sheet, and
+anything a provider retained from an inference request. The sheet is yours to edit;
+the provider's retention is governed by their terms, which is the reason the
+software refuses to send private text at all.
