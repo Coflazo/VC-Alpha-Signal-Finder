@@ -233,6 +233,36 @@ def review(candidate_id: str, verdict: Verdict) -> dict:
     return {"ok": True}
 
 
+@app.get("/api/calibration")
+def calibration() -> dict:
+    """How close the review queue is to replacing the guessed threshold.
+
+    Shown on the Review screen so the clicks have a visible destination. Without
+    it, reviewing is a chore with no feedback — which is how a feedback loop that
+    nobody closes ends up collecting labels nothing reads.
+    """
+    from vc_alpha import calibrate
+
+    return calibrate.progress(db())
+
+
+@app.post("/api/calibration/fit")
+def fit_calibration() -> dict:
+    """Fit the threshold and the score weights from the recorded reviews."""
+    from vc_alpha import calibrate
+
+    try:
+        cal = calibrate.fit(db())
+    except calibrate.NotEnoughLabels as e:
+        raise HTTPException(400, str(e)) from e
+
+    # Every stored score was computed with the old weights.
+    rescored = score.rescore(db())
+    return {"ok": True, "threshold": cal.threshold, "weights": cal.weights,
+            "labels": cal.n_labels, "precision": cal.precision,
+            "recall": cal.recall, "rescored": rescored}
+
+
 @app.get("/api/theses")
 def list_theses() -> dict:
     return {

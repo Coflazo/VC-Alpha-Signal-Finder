@@ -189,6 +189,42 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_calibrate(args) -> int:
+    """Replace the guessed stage-2 threshold with one fitted from your reviews."""
+    from vc_alpha import calibrate
+    from vc_alpha.db import connect
+
+    conn = connect(args.db)
+
+    if args.action in ("distribution", "sample", "show", "evaluate"):
+        import sys as _sys
+        argv = ["calibrate", args.action]
+        if args.action == "sample":
+            argv += ["--n", str(args.n)]
+        saved, _sys.argv = _sys.argv, argv
+        try:
+            calibrate.main()
+        finally:
+            _sys.argv = saved
+        return 0
+
+    try:
+        cal = calibrate.fit(conn, prefer=args.prefer)
+    except calibrate.NotEnoughLabels as e:
+        print(f"\n  {e}\n")
+        return 1
+
+    data = {"threshold": cal.threshold, "floor": cal.floor, "weights": cal.weights,
+            "labels": cal.n_labels, "precision": cal.precision, "recall": cal.recall}
+    _emit(data, args.json, lambda d: print(
+        f"\n  Fitted from {cal.n_labels} of your reviews.\n"
+        f"    threshold {d['threshold']:.2f}  "
+        f"(precision {d['precision']:.0%}, recall {d['recall']:.0%})\n"
+        f"    weights   {d['weights']}\n\n"
+        f"  The next run uses these instead of the defaults.\n"))
+    return 0
+
+
 # --- privacy -----------------------------------------------------------------
 
 
@@ -318,6 +354,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="actually delete; without it, only report what would go")
 
     sub.add_parser("purge", help="delete everything past its retention date")
+
+    cal = sub.add_parser(
+        "calibrate", help="fit the matching threshold to your own review decisions")
+    cal.add_argument("action", nargs="?", default="fit",
+                     choices=["fit", "show", "distribution", "evaluate", "sample"])
+    cal.add_argument("--prefer", choices=["f1", "recall"], default="recall",
+                     help="recall errs toward reading a dud over missing a founder")
+    cal.add_argument("--n", type=int, default=100, help="rows, for sample")
     return p
 
 
@@ -325,7 +369,7 @@ COMMANDS = {
     "serve": cmd_serve, "status": cmd_status, "collect": cmd_collect,
     "score": cmd_score, "run": cmd_run, "entities": cmd_entities,
     "report": cmd_report, "setup": cmd_setup, "mcp": cmd_mcp,
-    "forget": cmd_forget, "purge": cmd_purge,
+    "forget": cmd_forget, "purge": cmd_purge, "calibrate": cmd_calibrate,
 }
 
 

@@ -13,7 +13,7 @@ import json
 import logging
 from pathlib import Path
 
-from vc_alpha import env, paths, score, theses, triage
+from vc_alpha import calibrate, env, paths, score, theses, triage
 from vc_alpha.db import connect, purge_expired
 from vc_alpha.enrich.embed import survivors_by_rank
 from vc_alpha.llm import NoCapacityLeft, Router, Sending, set_a_key
@@ -34,7 +34,9 @@ def main() -> None:
     ap.add_argument("--db", default=None)
     ap.add_argument("--keep-rate", type=float, default=0.10,
                     help="fraction of each source to pass to triage")
-    ap.add_argument("--floor", type=float, default=0.25)
+    ap.add_argument("--floor", type=float, default=None,
+                    help="absolute similarity floor; defaults to the fitted "
+                         "value, or 0.25 before calibration")
     ap.add_argument("--limit", type=int, default=25, help="max candidates to triage")
     ap.add_argument("--thesis", help="only produce this fund's report")
     ap.add_argument("--source", help="only triage candidates from this source")
@@ -58,8 +60,11 @@ def main() -> None:
         raise SystemExit(f"no provider available. {set_a_key()}")
     log.info("providers: %s", ", ".join(p.name for p in router.available()))
 
-    # Stage 2 gate, per source so no source crowds out another.
-    gated = survivors_by_rank(conn, keep_rate=args.keep_rate, floor=args.floor)
+    # Stage 2 gate, per source so no source crowds out another. The floor comes
+    # from the fitted calibration when there is one; `active()` logs which.
+    cal = calibrate.active(conn)
+    gated = survivors_by_rank(conn, keep_rate=args.keep_rate,
+                              floor=args.floor if args.floor is not None else cal.floor)
     if not gated:
         raise SystemExit("nothing passed stage 2 — run vc_alpha.score_all first")
     cutoff = min(r["similarity"] for r in gated)

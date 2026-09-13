@@ -17,6 +17,10 @@ import math
 import sqlite3
 from datetime import datetime, timezone
 
+# Defaults, used until there are enough review labels to fit them. They are no
+# longer edited here: `vc-alpha calibrate fit` writes the fitted values to a config
+# and `combine` reads that, so the honest move — refit rather than defend the
+# numbers that happen to be here — is the one the code takes.
 W_SIMILARITY = 0.3
 W_THESIS_MATCH = 0.5
 W_RECENCY = 0.2
@@ -46,12 +50,25 @@ def recency_decay(posted_at: str | None, *, now: datetime | None = None) -> floa
     return math.pow(0.5, days / HALF_LIFE_DAYS)
 
 
+def weights() -> dict[str, float]:
+    """Fitted weights if they exist, otherwise the defaults above."""
+    from vc_alpha.calibrate import load
+
+    cal = load()
+    if cal.fitted:
+        return cal.weights
+    return {"similarity": W_SIMILARITY, "thesis_match": W_THESIS_MATCH,
+            "recency": W_RECENCY}
+
+
 def combine(similarity: float | None, thesis_match: float | None,
-            posted_at: str | None, *, now: datetime | None = None) -> float:
+            posted_at: str | None, *, now: datetime | None = None,
+            w: dict[str, float] | None = None) -> float:
+    w = w or weights()
     return (
-        W_SIMILARITY * (similarity or 0.0)
-        + W_THESIS_MATCH * (thesis_match or 0.0)
-        + W_RECENCY * recency_decay(posted_at, now=now)
+        w["similarity"] * (similarity or 0.0)
+        + w["thesis_match"] * (thesis_match or 0.0)
+        + w["recency"] * recency_decay(posted_at, now=now)
     )
 
 
@@ -64,6 +81,7 @@ def rescore(conn: sqlite3.Connection) -> int:
         "WHERE triage_json IS NOT NULL"
     ).fetchall()
 
+    w = weights()
     for r in rows:
         try:
             match = json.loads(r["triage_json"]).get("thesis_match")
@@ -71,7 +89,7 @@ def rescore(conn: sqlite3.Connection) -> int:
             match = None
         conn.execute(
             "UPDATE candidates SET score = ? WHERE id = ?",
-            (combine(r["similarity"], match, r["posted_at"]), r["id"]),
+            (combine(r["similarity"], match, r["posted_at"], w=w), r["id"]),
         )
     conn.commit()
     return len(rows)

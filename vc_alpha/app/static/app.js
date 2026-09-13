@@ -242,6 +242,7 @@ async function loadSource(key) {
 // --- review ------------------------------------------------------------------
 
 LOADERS.review = async () => {
+  loadCalibration().catch(() => {});
   const sel = $("#review-thesis");
   if (sel.options.length <= 1) {
     const { theses } = await api("/api/theses");
@@ -637,6 +638,40 @@ async function loadRetention() {
       `The deletion job runs when this app starts and before every run.`;
   } catch (e) { $("#retention-note").textContent = "Could not read the retention policy."; }
 }
+
+// The review clicks have a destination, and it is shown. Labels collected by a
+// screen that never reports what they are for is how this loop stayed open.
+async function loadCalibration() {
+  const c = await api("/api/calibration");
+  const cur = c.current || {};
+  $("#cal-progress").textContent =
+    `${c.labelled} of ${c.target} reviewed`;
+  $("#cal-detail").textContent = cur.n_labels >= c.minimum
+    ? `Your bar is set at ${cur.threshold.toFixed(2)}, fitted from ${cur.n_labels} of `
+      + `your decisions (precision ${Math.round(cur.precision * 100)}%, `
+      + `recall ${Math.round(cur.recall * 100)}%). Review more and recalibrate to sharpen it.`
+    : `The matching threshold is still the default guess of ${cur.threshold.toFixed(2)}. `
+      + `Mark ${Math.max(0, c.minimum - c.labelled)} more and it can be fitted to `
+      + `your own decisions instead.`;
+  $("#cal-fit").hidden = !c.can_fit;
+}
+
+$("#cal-fit").onclick = async () => {
+  const btn = $("#cal-fit");
+  btn.disabled = true;
+  $("#cal-status").textContent = "Fitting…";
+  try {
+    const r = await api("/api/calibration/fit", { method: "POST" });
+    $("#cal-status").textContent =
+      `Threshold now ${r.threshold.toFixed(2)} from ${r.labels} reviews. `
+      + `${r.rescored} candidates rescored.`;
+    loadCalibration();
+  } catch (e) {
+    $("#cal-status").textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 async function loadHardware() {
   try {
