@@ -125,8 +125,12 @@ def cmd_score(args) -> int:
 def cmd_run(args) -> int:
     """The full pass: triage, rank, report."""
     import subprocess
-    argv = [sys.executable, "-m", "vc_alpha.pipeline", "--db", args.db,
-            "--limit", str(args.limit)]
+    # --db only when one was given. It defaults to None now that the path is
+    # resolved by vc_alpha.paths, and passing None straight into argv is a
+    # TypeError from subprocess rather than anything readable.
+    argv = [sys.executable, "-m", "vc_alpha.pipeline", "--limit", str(args.limit)]
+    if args.db:
+        argv += ["--db", args.db]
     if args.research:
         argv.append("--research")
     if args.fund:
@@ -283,7 +287,34 @@ def cmd_purge(args) -> int:
 
 
 def cmd_setup(args) -> int:
+    """Check the machine, install a local model, or add a fund from prose.
+
+    The fund path exists because theses.NO_FUNDS points here. A message telling
+    someone to run a command that does not take those arguments is worse than no
+    message, and the app should not be the only way to create a thesis.
+    """
     from vc_alpha.installer import auto_setup
+
+    if args.name or args.prose:
+        from vc_alpha import onboard, theses
+
+        if not (args.name and args.prose):
+            print("  Both --name and --prose are needed to add a fund.")
+            return 1
+        if len(args.prose.strip()) < 40:
+            print("  Describe what you back in a sentence or two, not a phrase.")
+            return 1
+        try:
+            path = onboard.create(args.name, args.prose)
+        except FileExistsError as e:
+            print(f"  {e}")
+            return 1
+        data = {"id": onboard.slugify(args.name), "path": str(path),
+                "stage": onboard.infer_stage(args.prose)}
+        _emit(data, args.json, lambda d: print(
+            f"\n  Added {args.name} ({d['stage']}).\n  Edit {d['path']} to tune it, "
+            f"then run `vc-alpha collect hackernews`.\n"))
+        return 0
 
     steps = []
     for step in auto_setup(allow_download=not args.no_download):
@@ -315,47 +346,68 @@ def build_parser() -> argparse.ArgumentParser:
         prog="vc-alpha",
         description="Find early-stage startups before everyone else does. "
                     "Runs entirely on this machine.")
+    # --json and --db are declared twice on purpose: once on the top-level parser
+    # and once on every subcommand, through `parents`. argparse only accepts a
+    # top-level option *before* the subcommand, so `vc-alpha status --json` — which
+    # is what the docs promise and what anyone would actually type — was an
+    # "unrecognized arguments" error. Both placements work now.
+    # SUPPRESS, not a default: the subparser writes into the same namespace as the
+    # top-level parser, so a default of False here would overwrite a --json given
+    # before the subcommand. With SUPPRESS the attribute is only set when the flag
+    # is actually passed, and whichever position it appears in wins.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--db", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                        help="machine-readable output")
+
     p.add_argument("--db", default=None, help=argparse.SUPPRESS)
     p.add_argument("--json", action="store_true", help="machine-readable output")
     sub = p.add_subparsers(dest="command")
 
-    sub.add_parser("serve", help="open the app in a browser (default)")
-    sub.add_parser("status", help="what is configured and what has been found")
+    def subcommand(name: str, **kw) -> argparse.ArgumentParser:
+        """Every subcommand takes --json and --db, which is what the docs claim."""
+        return sub.add_parser(name, parents=[common], **kw)
 
-    c = sub.add_parser("collect", help="look for new candidates")
+    subcommand("serve", help="open the app in a browser (default)")
+    subcommand("status", help="what is configured and what has been found")
+
+    c = subcommand("collect", help="look for new candidates")
     c.add_argument("source", help="hackernews, substack, github, reddit, whatsapp, inbound, linkedin")
     c.add_argument("-n", type=int, default=10, help="how many places to check")
 
-    s = sub.add_parser("score", help="match what was found against your funds")
+    s = subcommand("score", help="match what was found against your funds")
     s.add_argument("--limit", type=int, default=None)
 
-    r = sub.add_parser("run", help="review, rank and report (stages 3 to 5)")
+    r = subcommand("run", help="review, rank and report (stages 3 to 5)")
     r.add_argument("--limit", type=int, default=25)
     r.add_argument("--research", action="store_true", help="also research the shortlist")
     r.add_argument("--fund", help="only this fund")
 
-    sub.add_parser("entities", help="rebuild founder and company profiles")
+    subcommand("entities", help="rebuild founder and company profiles")
 
-    rep = sub.add_parser("report", help="show or export a fund's report")
+    rep = subcommand("report", help="show or export a fund's report")
     rep.add_argument("fund")
     rep.add_argument("--limit", type=int, default=25)
     rep.add_argument("--csv", help="write to this file instead of printing")
     rep.add_argument("--to-sheet", action="store_true",
                      help="append new rows to the fund's Google Sheet")
 
-    st = sub.add_parser("setup", help="check this computer and install local AI")
+    st = subcommand(
+        "setup", help="check this computer, install local AI, or add a fund")
     st.add_argument("--no-download", action="store_true")
+    st.add_argument("--name", help="add a fund with this name")
+    st.add_argument("--prose", help="what that fund backs, in plain English")
 
-    sub.add_parser("mcp", help="run as an MCP server for Claude or Codex")
+    subcommand("mcp", help="run as an MCP server for Claude or Codex")
 
-    f = sub.add_parser("forget", help="erase one person, on request (GDPR)")
+    f = subcommand("forget", help="erase one person, on request (GDPR)")
     f.add_argument("author", help="the name or handle exactly as stored")
     f.add_argument("--yes", action="store_true",
                    help="actually delete; without it, only report what would go")
 
-    sub.add_parser("purge", help="delete everything past its retention date")
+    subcommand("purge", help="delete everything past its retention date")
 
-    cal = sub.add_parser(
+    cal = subcommand(
         "calibrate", help="fit the matching threshold to your own review decisions")
     cal.add_argument("action", nargs="?", default="fit",
                      choices=["fit", "show", "distribution", "evaluate", "sample"])

@@ -138,10 +138,9 @@ class Embedder:
             return False
 
     def _hosted(self, texts: list[str]) -> list[list[float]]:
-        import litellm
+        from vc_alpha.llm import quiet_litellm
 
-        litellm.suppress_debug_info = True
-        litellm.drop_params = True
+        litellm = quiet_litellm()
         response = litellm.embedding(
             model=self.model, input=[t[:MAX_CHARS] for t in texts]
         )

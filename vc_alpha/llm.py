@@ -134,6 +134,71 @@ LADDER = [
              10_000_000),
 ]
 
+_quieted = False
+
+
+def quiet_litellm():
+    """Import LiteLLM with its own logging turned down, and return it.
+
+    `suppress_debug_info` only covers LiteLLM's print statements. It also runs a
+    standard logger at INFO, which put lines like "Wrapper: Completed Call, calling
+    success_handler" and a full asyncio teardown traceback in front of a partner
+    running `vc-alpha run`. Nothing there is actionable by the person reading it,
+    and a tool that looks like it is erroring is a tool nobody trusts.
+
+    Warnings and errors still come through — those are worth seeing.
+    """
+    global _quieted
+    import litellm
+
+    if not _quieted:
+        litellm.suppress_debug_info = True
+        # Not every provider takes reasoning_effort. Dropping the parameter where
+        # it is unsupported beats keeping a per-provider table of which ones do.
+        litellm.drop_params = True
+        for name in ("LiteLLM", "LiteLLM Router", "LiteLLM Proxy", "litellm"):
+            logger = logging.getLogger(name)
+            logger.setLevel(logging.WARNING)
+            logger.addFilter(_TeardownNoise())
+        # "Task was destroyed but it is pending!" — asyncio complaining about
+        # LiteLLM's background logging worker at interpreter exit. We call LiteLLM
+        # synchronously and never start a loop of our own, so this is somebody
+        # else's cleanup, reported at ERROR, in front of a partner.
+        logging.getLogger("asyncio").setLevel(logging.CRITICAL)
+        # Same worker, via the warnings module rather than logging.
+        import warnings
+        warnings.filterwarnings(
+            "ignore", message=".*LoggingWorker._worker_loop.*never awaited.*")
+        _quieted = True
+    return litellm
+
+
+class _TeardownNoise(logging.Filter):
+    """Drop the two things LiteLLM shouts about that are not problems here.
+
+    **Exhausting a free tier is this product working, not failing.** Groq binds on
+    8,000 tokens a minute, so a sustained run hits that by design and falls through
+    to the next rung — that is the entire reason there is a ladder. LiteLLM logs
+    each fallback attempt at ERROR with a full chained traceback, so a successful
+    `vc-alpha run` printed roughly two hundred lines of stack trace and then
+    quietly wrote its report. A partner reading that concludes the tool is broken.
+
+    The event is still reported, as one line, by the Router, which knows something
+    LiteLLM does not: whether the call ultimately succeeded.
+
+    The rest is the background logging worker reattaching to an event loop and
+    flushing at exit. We call LiteLLM synchronously and start no loop of our own.
+    """
+
+    NOISE = ("LoggingWorker", "logging_worker", "atexit: Flushing",
+             "event loop changed", "Fallback attempt failed")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        text = str(record.msg)
+        return not (record.module in ("logging_worker", "fallback_utils")
+                    or any(n in text for n in self.NOISE))
+
+
 def set_a_key() -> str:
     """The "what do I do now" sentence, built from the ladder rather than typed out.
 
@@ -246,12 +311,7 @@ class Router:
                 f"no free capacity left today. {set_a_key()}"
             )
 
-        import litellm
-        litellm.suppress_debug_info = True
-        # Not every provider on the ladder takes reasoning_effort. Dropping the
-        # parameter where it is unsupported is better than keeping a per-provider
-        # table of which ones do.
-        litellm.drop_params = True
+        litellm = quiet_litellm()
 
         primary, *rest = usable
         messages = ([{"role": "system", "content": system}] if system else []) + \
@@ -292,6 +352,13 @@ class Router:
         charged = next((p.name for p in usable if p.model.endswith(answered)
                         or answered in p.model), primary.name)
         self.budget.note(charged)
+
+        # LiteLLM's own report of this is a two-hundred-line traceback at ERROR,
+        # which is filtered out above. This is the same fact, said once, by the
+        # only party that knows the call ultimately succeeded.
+        if charged != primary.name:
+            log.info("%s was rate-limited or unavailable; %s answered instead",
+                     primary.name, charged)
 
         content = response.choices[0].message.content or ""
         return _extract_json(content) if schema else content
