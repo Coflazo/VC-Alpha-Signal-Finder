@@ -260,7 +260,7 @@ def fit_calibration() -> dict:
     rescored = score.rescore(db())
     return {"ok": True, "threshold": cal.threshold, "weights": cal.weights,
             "labels": cal.n_labels, "precision": cal.precision,
-            "recall": cal.recall, "rescored": rescored}
+            "recall": cal.recall, "rescored": rescored, "caveats": cal.caveats}
 
 
 @app.get("/api/theses")

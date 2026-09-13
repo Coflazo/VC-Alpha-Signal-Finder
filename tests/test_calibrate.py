@@ -203,3 +203,58 @@ def test_average_precision_rewards_good_ranking():
     assert calibrate.average_precision(perfect) == pytest.approx(1.0)
     assert calibrate.average_precision(inverted) < 0.6
     assert calibrate.average_precision([(0.5, 0)]) == 0.0
+
+
+# --- saying when the evidence is thin ----------------------------------------
+
+
+def test_a_top_heavy_sample_is_called_out(conn):
+    """Found by fitting on real data: 60 labels drawn from the top of the ranking
+    gave "threshold 0.05, precision 92%" and said it with a straight face. It was
+    right about its labels and wrong about the world."""
+    for i in range(50):
+        _label(conn, f"c{i}", 0.75 + i / 500, good=i > 3, match=0.8)
+
+    cal = calibrate.fit(conn)
+    assert cal.caveats, "a 92%-positive sample must not be reported without comment"
+    assert any("labelled was good" in c for c in cal.caveats)
+
+
+def test_an_unlabelled_lower_range_is_called_out(conn):
+    """Recall below the lowest thing you looked at is unmeasured, not high."""
+    # A corpus reaching down to 0.10, with every label drawn from above 0.70.
+    for i in range(20):
+        conn.execute(
+            """INSERT INTO candidates (id, source, source_url, raw_text,
+               discovered_at, retention_until, similarity, embedding_model)
+               VALUES (?, 'hackernews', ?, 'text', '2026-01-01', '2099-01-01', ?,
+                       'mistral/mistral-embed')""",
+            (f"low{i}", f"https://x/low{i}", 0.10 + i / 200))
+    conn.commit()
+
+    # Labelled only in 0.70–0.95, and separable within that band so the fit itself
+    # succeeds — the point is that it succeeds while blind to everything below.
+    for i in range(50):
+        sim = 0.70 + (i / 50) * 0.25
+        _label(conn, f"hi{i}", sim, good=sim >= 0.85, match=0.9 if sim >= 0.85 else 0.1)
+
+    cal = calibrate.fit(conn)
+    assert any("was ever labelled" in c for c in cal.caveats), cal.caveats
+
+
+def test_a_clean_fit_carries_no_caveats(conn):
+    """The check has to be quiet when there is nothing to say, or it is noise."""
+    # A realistic shape: mostly negative, separable, labelled across the range.
+    for i in range(60):
+        sim = 0.10 + (i / 60) * 0.80
+        _label(conn, f"c{i}", sim, good=sim >= 0.62, match=0.9 if sim >= 0.62 else 0.1)
+
+    cal = calibrate.fit(conn, prefer="f1")
+    assert cal.caveats == [], f"unexpected caveats: {cal.caveats}"
+
+
+def test_caveats_survive_a_save_and_reload(conn):
+    for i in range(50):
+        _label(conn, f"c{i}", 0.75 + i / 500, good=i > 3, match=0.8)
+    calibrate.fit(conn)
+    assert calibrate.load().caveats

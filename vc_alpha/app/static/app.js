@@ -662,9 +662,12 @@ $("#cal-fit").onclick = async () => {
   $("#cal-status").textContent = "Fitting…";
   try {
     const r = await api("/api/calibration/fit", { method: "POST" });
+    // Caveats are shown, not stored. A fitted number that cannot say when its own
+    // evidence is thin is a guess wearing a measurement's clothes.
     $("#cal-status").textContent =
       `Threshold now ${r.threshold.toFixed(2)} from ${r.labels} reviews. `
-      + `${r.rescored} candidates rescored.`;
+      + `${r.rescored} candidates rescored.`
+      + (r.caveats?.length ? "  " + r.caveats.join("  ") : "");
     loadCalibration();
   } catch (e) {
     $("#cal-status").textContent = e.message;

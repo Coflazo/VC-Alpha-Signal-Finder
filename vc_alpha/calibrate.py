@@ -73,6 +73,10 @@ class Calibration:
     recall: float = 0.0
     f1: float = 0.0
     fitted_at: str | None = None
+    # Reasons to distrust the numbers above, in plain English. A fitted threshold
+    # that cannot say when its own evidence is thin is just a guess wearing a
+    # measurement's clothes.
+    caveats: list[str] = field(default_factory=list)
 
     @property
     def fitted(self) -> bool:
@@ -312,9 +316,59 @@ def fit(conn: sqlite3.Connection, *, labels: list[dict] | None = None,
         recall=round(row["recall"], 4),
         f1=round(row["f1"], 4),
         fitted_at=datetime.now(timezone.utc).isoformat(),
+        caveats=caveats_for(conn, labels, row["threshold"]),
     )
     save(cal)
     return cal
+
+
+def caveats_for(conn: sqlite3.Connection, labels: list[dict],
+                threshold: float) -> list[str]:
+    """Why this fit might not deserve the confidence its numbers imply.
+
+    Written after a real fit returned "threshold 0.05, precision 92%" and said it
+    with a straight face. It was right about its labels and wrong about the world:
+    the labels had all come from the top of the ranking, where almost everything is
+    good, so the honest conclusion was "keep everything" and the actual conclusion
+    should have been "these labels cannot tell you where the bar goes".
+
+    A threshold nothing can talk you out of is worse than a documented guess.
+    """
+    out = []
+    positive_rate = sum(1 for r in labels if r["was_good"]) / len(labels)
+
+    if positive_rate > 0.80:
+        out.append(
+            f"{positive_rate:.0%} of what you labelled was good. A real corpus is a "
+            "few percent, so this looks like a sample taken from the top of the "
+            "ranking rather than across it. Review some low-scoring candidates too, "
+            "or the threshold has nothing to separate.")
+    elif positive_rate < 0.05:
+        out.append(
+            f"only {positive_rate:.0%} was marked good, so the fit rests on very few "
+            "positives and will move a lot with the next few labels.")
+
+    # Recall below the lowest thing you looked at is unmeasured, not high.
+    row = conn.execute(
+        "SELECT MIN(similarity) lo, MAX(similarity) hi FROM candidates "
+        "WHERE similarity IS NOT NULL").fetchone()
+    if row and row["lo"] is not None:
+        labelled_lo = min(r["similarity"] for r in labels)
+        corpus_span = row["hi"] - row["lo"]
+        if corpus_span > 0 and (labelled_lo - row["lo"]) / corpus_span > 0.25:
+            out.append(
+                f"nothing below {labelled_lo:.2f} was ever labelled, but the corpus "
+                f"goes down to {row['lo']:.2f}. Whatever is down there is invisible "
+                "to this fit, so the recall figure is optimistic by an unknown "
+                "amount. `vc-alpha calibrate sample` draws across the whole range.")
+
+    if threshold <= 0.10:
+        out.append(
+            "the fitted threshold is low enough to keep almost everything, which "
+            "usually means the labels did not contain a clear boundary rather than "
+            "that your bar is genuinely that wide.")
+
+    return out
 
 
 class NotEnoughLabels(RuntimeError):
@@ -497,6 +551,8 @@ def main() -> None:
     print(f"  weights    similarity {cal.weights['similarity']}, "
           f"thesis_match {cal.weights['thesis_match']}, "
           f"recency {cal.weights['recency']}")
+    for caveat in cal.caveats:
+        print(f"\n  ! {caveat}")
     print(f"\nWritten to {paths.calibration_file()}. The next run uses it.\n")
 
 

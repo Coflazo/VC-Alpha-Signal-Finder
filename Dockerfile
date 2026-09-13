@@ -19,9 +19,18 @@ RUN pip install --no-cache-dir .
 
 # Build the C++ extension. build-essential is installed above for exactly this, and
 # the image previously carried the compiler without ever using it — so every image
-# paid for a toolchain and still ran the pure-Python fallback. Non-fatal: the
-# fallback is transparent and a build failure should not cost the whole image.
-RUN python scripts/build_ext.py || echo "extension not built; using pure Python"
+# paid for a toolchain and still ran the pure-Python fallback.
+#
+# pybind11 is installed here rather than declared as a project dependency: it is
+# needed to *build* the extension and never to run the product, and requiring a
+# compiler to install a deal-sourcing tool would lose most of the people it is for.
+# In the container the compiler is already there, so the fast path is free.
+#
+# Non-fatal on purpose: the pure-Python twin is transparent and a build failure
+# should cost speed, not the image.
+RUN pip install --no-cache-dir pybind11 \
+    && python scripts/build_ext.py \
+    || echo "extension not built; using the pure-Python fallback"
 RUN python -c "from vc_alpha.fastpath import HAVE_FAST; print('fast extension:', HAVE_FAST)"
 
 # Everything this installation owns — database, theses, keys — lives under one
