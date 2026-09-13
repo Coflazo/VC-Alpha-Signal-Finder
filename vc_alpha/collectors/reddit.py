@@ -50,7 +50,7 @@ def client():
     try:
         import praw
     except ImportError as e:
-        raise RedditUnavailable("praw is not installed. Run: uv sync --extra reddit") from e
+        raise RedditUnavailable("praw is not installed. Run: uv sync --inexact --extra reddit") from e
 
     return praw.Reddit(
         client_id=cid, client_secret=secret,

@@ -100,7 +100,7 @@ def fetcher():
     try:
         from scrapling.fetchers import StealthyFetcher
     except ImportError as e:
-        raise LinkedInUnavailable("run: uv sync --extra enrich") from e
+        raise LinkedInUnavailable("run: uv sync --inexact --extra enrich") from e
     return StealthyFetcher
 
 

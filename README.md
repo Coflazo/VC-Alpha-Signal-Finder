@@ -388,7 +388,7 @@ and it writes a commented config you can then edit. No YAML by hand.
 ```bash
 git clone git@github.com:Coflazo/VC-Alpha-Signal-Finder.git
 cd VC-Alpha-Signal-Finder
-uv sync --extra dev
+uv sync --inexact --extra dev
 
 # Collect. No credentials needed for these three.
 uv run python -m vc_alpha.collect --source hackernews --visits 5

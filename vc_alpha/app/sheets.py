@@ -89,7 +89,7 @@ def status() -> SheetStatus:
     except ImportError:
         return SheetStatus(
             False,
-            "Client library missing. Install with: uv sync --extra sheets",
+            "Client library missing. Install with: uv sync --inexact --extra sheets",
             sheet_id,
         )
     if not creds:
