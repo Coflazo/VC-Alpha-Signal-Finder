@@ -61,7 +61,9 @@ def cmd_status(args) -> int:
         print(f"  {d['scored']:>6} scored against your funds")
         print(f"  {d['reviewed_by_ai']:>6} reviewed by AI")
         print(f"  {d['reviewed_by_you']:>6} reviewed by you")
-        print(f"\n  funds:     {', '.join(d['funds'])}")
+        print(f"\n  funds:     {', '.join(d['funds']) or 'none yet'}")
+        if not d["funds"]:
+            print(f"             {theses.NO_FUNDS}")
         print(f"  providers: {', '.join(d['providers']) or 'none configured'}")
         print("\n  sources:")
         for name, s in d["sources"].items():

@@ -41,8 +41,11 @@ function show(tab, sourceKey) {
   else LOADERS[tab]?.();
 }
 
-document.querySelectorAll("#rail nav button[data-tab]").forEach((b) => {
-  b.onclick = () => show(b.dataset.tab);
+// Delegated, so a data-tab button anywhere in the page navigates — the first-run
+// prompt on the dashboard is one, and binding only the rail left it inert.
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-tab]");
+  if (b) show(b.dataset.tab, b.dataset.source);
 });
 
 // --- sidebar source list -----------------------------------------------------
@@ -58,7 +61,8 @@ async function buildSourceNav() {
         ? el("span", { className: "dot", textContent: s.candidates || "" })
         : el("span", { className: "dot warn", textContent: "setup", title: s.setup || "" }),
     ]);
-    btn.onclick = () => show("source", s.key);
+    // No onclick: the delegated handler above reads both data attributes, and
+    // binding here as well fired show() twice and loaded the source twice.
     return btn;
   }));
 
@@ -78,6 +82,12 @@ LOADERS.dashboard = async () => {
   const d = await api("/api/overview");
   const total = d.sources.reduce((a, s) => a + s.total, 0);
   const scored = d.sources.reduce((a, s) => a + (s.scored || 0), 0);
+
+  // Nothing downstream can work without a thesis, so a fresh install is told
+  // that first rather than being shown five zeroes and left to guess.
+  const fresh = !d.funds;
+  $("#first-run").hidden = !fresh;
+  $("#first-run-note").textContent = d.first_run || "";
 
   $("#c-review").textContent = d.reviewed.n ? "" : "";
   $("#metrics").replaceChildren(...[

@@ -65,8 +65,12 @@ class EmbeddingProvider:
         return self.name == "ollama"
 
     @property
+    def key(self) -> str | None:
+        return os.environ.get(self.env_key)
+
+    @property
     def configured(self) -> bool:
-        return self.local or bool(os.environ.get(self.env_key))
+        return self.local or bool(self.key)
 
 
 # Ordered best-first. Checked against live calls on 14 September 2026.

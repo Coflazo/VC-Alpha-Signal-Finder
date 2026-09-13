@@ -76,8 +76,14 @@ class Provider:
         return self.name == "ollama"
 
     @property
+    def key(self) -> str | None:
+        """The configured key, or None. Read on access, never captured at import,
+        because the Setup screen writes keys into the running process."""
+        return os.environ.get(self.env_key)
+
+    @property
     def configured(self) -> bool:
-        return self.local or bool(os.environ.get(self.env_key))
+        return self.local or bool(self.key)
 
 
 # Ordered best-first. Every one is a free tier and none needs a payment card.

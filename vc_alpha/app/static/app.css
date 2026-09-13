@@ -1,9 +1,14 @@
 /* Swiss minimalism, dashboard density, sidebar layout.
    Fira Sans for text, Fira Code for anything numeric — columns of figures only line
-   up in a monospace face. Both fall back to system fonts, so the app still looks
-   deliberate with no network. */
+   up in a monospace face.
 
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@400;500;600&display=swap');
+   These are *preferred*, never fetched. There was a Google Fonts @import here,
+   which meant opening the app sent the user's IP to Google on every load — in a
+   product whose README promises no telemetry and no phone-home, and which a fund
+   runs precisely because their deal flow should not leave the building. A
+   stylesheet request is a small leak, but it is exactly the kind the promise was
+   made about. The font stacks below fall back to the system face, and the layout
+   was designed against those fallbacks anyway. */
 
 :root {
   --bg: #f7f8fa;

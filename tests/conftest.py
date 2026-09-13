@@ -37,7 +37,7 @@ PROVIDER_KEYS = [
 
 
 @pytest.fixture(autouse=True)
-def no_ambient_credentials(monkeypatch, tmp_path):
+def no_ambient_credentials(request, monkeypatch, tmp_path):
     for key in PROVIDER_KEYS:
         monkeypatch.delenv(key, raising=False)
     # A home of its own, so no test reads or writes the developer's real database,
@@ -45,5 +45,12 @@ def no_ambient_credentials(monkeypatch, tmp_path):
     # about scoring against a thesis rather than about having none.
     home = tmp_path / "home"
     (home / "config").mkdir(parents=True)
-    shutil.copytree(EXAMPLE_THESES, home / "config" / "theses")
+    if request.node.get_closest_marker("empty_install") is None:
+        shutil.copytree(EXAMPLE_THESES, home / "config" / "theses")
     monkeypatch.setenv("VC_ALPHA_HOME", str(home))
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "empty_install: start with no thesis at all, as a firm does on day one")

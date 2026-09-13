@@ -92,6 +92,8 @@ def overview() -> dict:
     return {
         "sources": sources,
         "nodes": dict(nodes) if nodes else {},
+        "funds": len(theses.load_all()),
+        "first_run": theses.NO_FUNDS,
         "reviewed": {"n": reviewed["n"] or 0, "good": reviewed["good"] or 0},
         "job": runner.current.as_dict() if runner.current else None,
     }
@@ -111,7 +113,9 @@ def providers() -> dict:
         "providers": [
             {
                 "name": p.name,
-                "configured": bool(p.key),
+                # Not bool(p.key): the local rung needs no key and is the one
+                # thing that works with nothing set up at all.
+                "configured": p.configured,
                 "env": p.env_key,
                 "local": p.local,
                 "used": used.get(p.name, 0),
@@ -527,7 +531,7 @@ def dossier(entity_id: str) -> dict:
         for e in entities.evidence(conn, entity_id)
     ]
 
-    paths = [
+    warm = [
         {"kind": p.kind, "via": p.via, "person": p.person,
          "strength": p.strength, "describe": p.describe()}
         for p in warmpath.paths_to(conn, entity_id)
@@ -551,7 +555,7 @@ def dossier(entity_id: str) -> dict:
         "breakdown": breakdown,
         "support": detail.get("support", []),
         "evidence": ev,
-        "warm_paths": paths,
+        "warm_paths": warm,
     }
 
 
@@ -687,7 +691,7 @@ def setup() -> dict:
         {
             "name": p.name,
             "env": p.env_key,
-            "present": bool(p.key) and not p.local,
+            "present": p.configured and not p.local,
             "optional": True,
             "unlocks": "Triage and research" if not p.local else "Offline fallback",
             "where": {
