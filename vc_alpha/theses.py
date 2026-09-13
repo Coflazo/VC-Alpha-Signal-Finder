@@ -83,6 +83,13 @@ class Thesis:
 def load(path: Path) -> Thesis:
     raw = yaml.safe_load(path.read_text())
     fields = [ReportField(**f) for f in raw.pop("report_fields", [])]
+
+    # YAML types values, so a fund called 212 arrives as an integer and every
+    # consumer that joins or formats names then breaks. Coerced once here rather
+    # than defended against everywhere downstream.
+    for key in ("id", "name"):
+        if key in raw:
+            raw[key] = str(raw[key])
     return Thesis(report_fields=fields, **raw)
 
 

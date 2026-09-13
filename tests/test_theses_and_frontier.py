@@ -139,3 +139,12 @@ def test_suggestions_rank_by_measured_hit_rate(conn):
         frontier.record_visit(conn, "fake", node, seen, hits, False)
     ranked = frontier.suggestions(conn, "fake")
     assert [r["node"] for r in ranked] == ["good", "weak"]
+
+
+def test_numeric_fund_names_load_as_strings():
+    """A fund called 212 arrives from YAML as an integer, which breaks anything that
+    joins or formats names. Found when the CLI tried to list the funds."""
+    for t in theses.load_all():
+        assert isinstance(t.id, str), f"{t.id!r} is not a string"
+        assert isinstance(t.name, str), f"{t.name!r} is not a string"
+    assert ", ".join(t.name for t in theses.load_all())

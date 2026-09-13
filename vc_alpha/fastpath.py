@@ -36,11 +36,19 @@ _WORD = re.compile(r"[a-z0-9]+")
 def cosine_matrix(matrix: list[list[float]], query: list[float]) -> list[float]:
     """Cosine of `query` against every row of `matrix`.
 
-    The hot loop of stage 2: at 100k candidates and 1024 dimensions this is about
-    a billion float operations.
+    Kept for callers holding plain Python lists. The pipeline does not use it —
+    stage 2 goes through `cosine_blobs`, which reads the packed bytes sqlite
+    already returns and measured 43x against 2x for this shape.
+
+    The C++ path here needs numpy to hand over a contiguous buffer. numpy is not a
+    dependency, because adding one for a function that is not on the hot path is a
+    poor trade, so this quietly falls back when it is absent.
     """
     if HAVE_FAST:
-        import numpy as np
+        try:
+            import numpy as np
+        except ImportError:
+            return _cosine_matrix_py(matrix, query)
         return list(_fastops.cosine_matrix(
             np.asarray(matrix, dtype=np.float64),
             np.asarray(query, dtype=np.float64),

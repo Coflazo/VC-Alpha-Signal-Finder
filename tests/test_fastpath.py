@@ -24,6 +24,8 @@ def rand_vec(d, rng):
 
 @pytest.mark.skipif(not fp.HAVE_FAST, reason="extension not built")
 def test_cosine_matrix_matches_the_python_twin():
+    """Not the hot path — the pipeline uses cosine_blobs — and it falls back to pure
+    Python when numpy is absent, since numpy is not worth a dependency here."""
     rng = random.Random(1)
     mat = [rand_vec(64, rng) for _ in range(120)]
     q = rand_vec(64, rng)

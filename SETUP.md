@@ -7,8 +7,18 @@ operate, and every credential below is a free tier or a free account.
 
 ```bash
 uv sync --extra dev
-uv run vc-alpha          # http://127.0.0.1:8420
+vc-alpha                 # opens http://127.0.0.1:8420
 ```
+
+### Three ways to use it
+
+| | For whom |
+|---|---|
+| `vc-alpha` | The app, in a browser. No terminal knowledge needed. |
+| `vc-alpha status`, `collect`, `report` | A terminal, for anyone who prefers one. |
+| **Claude or Codex, over MCP** | **Ask questions in plain English and let the assistant drive.** See [docs/MCP.md](docs/MCP.md). |
+
+Run `vc-alpha --help` for the full command list. Every command takes `--json`.
 
 That already works. With no credentials at all it collects from Hacker News,
 Substack and GitHub, filters, and scores locally through Ollama. The Setup tab in
