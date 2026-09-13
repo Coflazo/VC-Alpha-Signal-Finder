@@ -178,6 +178,11 @@ a { color: var(--primary); }
 
 .setup-item { display: flex; justify-content: space-between; gap: var(--s4); align-items: flex-start; padding: var(--s3) 0; border-bottom: 1px solid var(--border); }
 .setup-item:last-child { border-bottom: 0; }
+/* The row wraps to a second line, so the key entry sits under the description
+   rather than squeezing it. flex-basis:100% is what forces that break. */
+.setup-item { flex-wrap: wrap; }
+.key-entry { flex-basis: 100%; margin: var(--s2) 0 0; }
+.key-entry input[type=password] { flex: 1 1 220px; min-width: 0; font-family: var(--mono); font-size: 12px; }
 .setup-item code { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
 
 @media (max-width: 860px) {

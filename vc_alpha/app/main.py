@@ -23,11 +23,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from vc_alpha import entities, env, founders, paths, score, theses, warmpath
+from vc_alpha import entities, env, founders, paths, score, secrets, theses, warmpath
 from vc_alpha.app import sheets
 from vc_alpha.app.jobs import runner
 from vc_alpha.db import connect
-from vc_alpha.llm import LADDER, Router
+from vc_alpha.enrich.embed import EMBEDDERS
+from vc_alpha.llm import LADDER, Router, Sending
 from vc_alpha.quant.information import (
     DecisionEconomics, calibrate_to_posterior, review_priority)
 
@@ -682,9 +683,12 @@ def edit_cell(edit: CellEdit) -> dict:
 
 @app.get("/api/setup")
 def setup() -> dict:
-    """Exactly what is still missing, and where each piece comes from.
+    """Exactly what is still missing, where each piece comes from, and — now —
+    somewhere to put it.
 
-    Everything here is free and none of it needs a payment card.
+    Everything here is free and none of it needs a payment card. No value is ever
+    returned, only whether one is present: a key readable from the UI is a key
+    that leaks through a screenshot or a support request.
     """
     st = sheets.status()
     items = [
@@ -693,37 +697,98 @@ def setup() -> dict:
             "env": p.env_key,
             "present": p.configured and not p.local,
             "optional": True,
+            "settable": p.env_key in secrets.SETTABLE,
             "unlocks": "Triage and research" if not p.local else "Offline fallback",
-            "where": {
-                "gemini": "https://aistudio.google.com",
-                "groq": "https://console.groq.com",
-                "cerebras": "https://cloud.cerebras.ai",
-                "github": "https://github.com/settings/tokens",
-                "openrouter": "https://openrouter.ai/keys",
-                "ollama": "https://ollama.com — runs locally, no account",
-            }.get(p.name, ""),
+            "where": secrets.WHERE.get(
+                p.env_key, "ollama.com — runs locally, no account"),
         }
         for p in LADDER
     ]
+    # Embedding rungs that are not also inference rungs. Stage 2 runs over
+    # everything, so which of these is set is the single biggest lever on how long
+    # a run takes: measured, 12.5 ms an item hosted against 2,400 ms locally.
+    seen = {p.env_key for p in LADDER}
+    items += [
+        {
+            "name": f"{p.name} (embeddings)",
+            "env": p.env_key,
+            "present": p.configured and not p.local,
+            "optional": True,
+            "settable": True,
+            "unlocks": "Stage 2 embedding, ~190x faster than local",
+            "where": secrets.WHERE.get(p.env_key, ""),
+        }
+        for p in EMBEDDERS if not p.local and p.env_key not in seen
+    ]
     items.append({
-        "name": "reddit", "env": "REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET",
-        "present": bool(os.environ.get("REDDIT_CLIENT_ID")), "optional": True,
+        "name": "reddit", "env": "REDDIT_CLIENT_ID", "extra_env": "REDDIT_CLIENT_SECRET",
+        "present": bool(os.environ.get("REDDIT_CLIENT_ID"))
+                   and bool(os.environ.get("REDDIT_CLIENT_SECRET")),
+        "optional": True, "settable": True,
         "unlocks": "The Reddit collector",
-        "where": "https://www.reddit.com/prefs/apps — script type, two minutes",
+        "where": secrets.WHERE["REDDIT_CLIENT_ID"],
     })
     items.append({
         "name": "google sheets", "env": sheets.SHEET_ENV,
-        "present": st.configured, "optional": True,
+        "present": st.configured, "optional": True, "settable": True,
         "unlocks": "Writing findings to a sheet, and editing it here",
         "where": st.detail,
     })
     items.append({
         "name": "linkedin", "env": "LINKEDIN_SESSION_COOKIE",
-        "present": bool(os.environ.get("LINKEDIN_SESSION_COOKIE")), "optional": True,
+        "present": bool(os.environ.get("LINKEDIN_SESSION_COOKIE")),
+        "optional": True, "settable": True,
         "unlocks": "The LinkedIn collector. Use a secondary account.",
-        "where": "Copy the li_at cookie from a logged-in browser",
+        "where": secrets.WHERE["LINKEDIN_SESSION_COOKIE"],
     })
-    return {"items": items}
+    return {"items": items, "stored_in": str(paths.env_file())}
+
+
+class KeyEdit(BaseModel):
+    name: str
+    value: str
+
+
+@app.post("/api/setup/key")
+def save_key(edit: KeyEdit) -> dict:
+    """Save one credential and apply it to the running process.
+
+    This is what makes the product usable by someone who does not want to know
+    what an environment variable is. An empty value clears the key, so the same
+    endpoint covers removing one.
+    """
+    try:
+        secrets.save(edit.name, edit.value)
+    except secrets.NotSettable as e:
+        raise HTTPException(400, str(e)) from e
+    return {"ok": True, "present": bool(os.environ.get(edit.name))}
+
+
+@app.post("/api/setup/test")
+def test_key(edit: KeyEdit) -> dict:
+    """Spend one call proving a key works, rather than waiting for a run to fail.
+
+    A key that is present but wrong is worse than a missing one: the product
+    reports itself configured and then every call fails somewhere less visible.
+    """
+    provider = next((p for p in LADDER if p.env_key == edit.name), None)
+    if not provider:
+        embedder = next((p for p in EMBEDDERS if p.env_key == edit.name), None)
+        if not embedder:
+            raise HTTPException(400, "not a provider key")
+        try:
+            from vc_alpha.enrich.embed import Embedder
+            vec = Embedder(provider=embedder).embed("a test sentence")
+            return {"ok": True, "detail": f"{len(vec)}-dimension embeddings"}
+        except Exception as e:
+            return {"ok": False, "detail": str(e)[:200]}
+
+    try:
+        answer = Router(db(), ladder=[provider]).complete(
+            "Reply with the single word: ready", sending=Sending.PUBLIC)
+        return {"ok": True, "detail": f"{provider.model} answered"}
+    except Exception as e:
+        return {"ok": False, "detail": str(e)[:200]}
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

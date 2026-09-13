@@ -7,7 +7,11 @@ const el = (tag, props = {}, kids = []) => {
   for (const k of [].concat(kids)) if (k != null) n.append(k);
   return n;
 };
-const api = async (path, opts) => {
+const api = async (path, opts = {}) => {
+  // A body always means JSON here. Setting the header in one place rather than at
+  // every call site: FastAPI rejects a JSON body without it, and forgetting it is
+  // a 422 that looks like a validation bug in the endpoint.
+  if (opts.body) opts.headers = { "Content-Type": "application/json", ...opts.headers };
   const r = await fetch(path, opts);
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   return r.json();
@@ -156,7 +160,7 @@ $("#job-start").onclick = async () => {
   $("#job-start").disabled = true;
   try {
     renderJob(await api("/api/jobs", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST",
       body: JSON.stringify({
         kind: $("#job-kind").value, source: $("#job-source").value,
         n: Number($("#job-n").value),
@@ -285,7 +289,7 @@ async function loadCandidates() {
 
     const mark = async (good) => {
       await api(`/api/candidates/${c.id}/review`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
         body: JSON.stringify({ good }),
       });
       card.remove();
@@ -461,7 +465,7 @@ $("#sheet-push").onclick = async () => {
   btn.disabled = true;
   try {
     const r = await api("/api/sheet/push", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST",
       body: JSON.stringify({ thesis: $("#sheet-fund").value }),
     });
     $("#sheet-note").textContent = r.detail;
@@ -499,7 +503,7 @@ async function loadSheet() {
         const value = td.textContent;
         try {
           await api("/api/sheet/cell", {
-            method: "POST", headers: { "Content-Type": "application/json" },
+            method: "POST",
             body: JSON.stringify({ row: i + 2, column: col + 1, value }),
           });
           before = value;
@@ -516,19 +520,81 @@ async function loadSheet() {
 
 LOADERS.setup = async () => {
   loadHardware();
-  const { items } = await api("/api/setup");
-  $("#setup-list").replaceChildren(...items.map((i) =>
-    el("div", { className: "setup-item" }, [
+  const { items, stored_in } = await api("/api/setup");
+  $("#setup-where").textContent =
+    `Saved to ${stored_in}, readable only by you. Keys are never shown again once saved.`;
+
+  $("#setup-list").replaceChildren(...items.map((i) => {
+    // One row per credential: what it unlocks, where to get it, somewhere to
+    // paste it, and a button that spends one call proving it actually works. A
+    // key that is present but wrong is worse than a missing one, because the
+    // product reports itself configured and fails somewhere less visible.
+    const status = el("span", { className: `pill ${i.present ? "on" : "off"}`,
+                                textContent: i.present ? "connected" : "not set" });
+    const note = el("span", { className: "sub" });
+    const row = el("div", { className: "setup-item" }, [
       el("div", {}, [
         el("div", { textContent: i.name, style: "font-weight:500" }),
         el("div", { className: "note", style: "margin:2px 0", textContent: i.unlocks }),
-        i.where?.startsWith("http")
-          ? el("a", { href: i.where, target: "_blank", rel: "noopener", textContent: i.where })
-          : el("div", { className: "note", style: "margin:0", textContent: i.where || "" }),
+        el("div", { className: "note", style: "margin:0" }, [
+          el("code", { textContent: i.env }),
+          el("span", { textContent: i.where ? `  —  ${i.where}` : "" }),
+        ]),
       ]),
-      el("span", { className: `pill ${i.present ? "on" : "off"}`,
-                   textContent: i.present ? "connected" : "not set" }),
-    ])));
+      status,
+    ]);
+
+    if (!i.settable) return row;
+
+    const fields = [i.env, ...(i.extra_env ? [i.extra_env] : [])].map((name) =>
+      el("input", { type: "password", autocomplete: "off", dataset: { env: name },
+                    placeholder: i.present ? "•••• saved — type to replace" : name,
+                    "aria-label": name }));
+
+    const save = el("button", { className: "act", textContent: "Save" });
+    const test = el("button", { className: "act", textContent: "Test" });
+
+    save.onclick = async () => {
+      save.disabled = true;
+      note.textContent = "Saving…";
+      try {
+        for (const f of fields) {
+          if (!f.value.trim()) continue;
+          await api("/api/setup/key", {
+            method: "POST",
+            body: JSON.stringify({ name: f.dataset.env, value: f.value.trim() }),
+          });
+          f.value = "";                     // never leave a key sitting in the DOM
+        }
+        note.textContent = "Saved.";
+        LOADERS.setup();
+      } catch (e) {
+        note.textContent = e.message || "Could not save that.";
+      } finally {
+        save.disabled = false;
+      }
+    };
+
+    test.onclick = async () => {
+      test.disabled = true;
+      note.textContent = "Testing, this spends one call…";
+      try {
+        const r = await api("/api/setup/test", {
+          method: "POST",
+          body: JSON.stringify({ name: i.env, value: "" }),
+        });
+        note.textContent = r.ok ? `Works — ${r.detail}` : `Failed — ${r.detail}`;
+      } catch (e) {
+        note.textContent = e.message || "Could not test that.";
+      } finally {
+        test.disabled = false;
+      }
+    };
+
+    row.append(el("div", { className: "controls key-entry" },
+                  [...fields, save, test, note]));
+    return row;
+  }));
 };
 
 async function loadHardware() {
@@ -563,7 +629,7 @@ $("#th-create").onclick = async () => {
   btn.disabled = true;
   try {
     const r = await api("/api/theses", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST",
       body: JSON.stringify({ name: $("#th-name").value, prose: $("#th-prose").value }),
     });
     $("#th-status").textContent = `Saved. Restart the app to start using it.`;
