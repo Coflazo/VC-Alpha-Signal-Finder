@@ -4,6 +4,75 @@ Measured, not asserted. Every number here came from running the pipeline on the 
 corpus, and the date and sample size are recorded so the claims can be re-checked or
 found stale.
 
+## Provider audit, 14 September 2026
+
+Every model id in both ladders was called for real, because the shipped list had
+rotted and there is no way to tell from reading it.
+
+### Inference
+
+| Provider | Model id | Result |
+|---|---|---|
+| Groq | `openai/gpt-oss-120b` | **4.8s**, valid JSON |
+| Mistral | `ministral-8b-latest` | **0.41s**, valid JSON |
+| NVIDIA NIM | `nvidia/nemotron-3-super-120b-a12b` | **4.6s**, valid JSON |
+| OpenRouter | `nvidia/nemotron-3-ultra-550b-a55b:free` | 29s, leaked reasoning into content |
+| Cerebras | `gpt-oss-120b` | **payment required** |
+| SambaNova | `gpt-oss-120b` | **payment method required** |
+| Cerebras | `llama-3.3-70b` *(was shipped)* | **404, model retired** |
+| OpenRouter | `meta-llama/llama-3.3-70b-instruct:free` *(was shipped)* | **404, model retired** |
+
+Two of the ids the product shipped with no longer exist, and two providers have
+withdrawn their free tier. The failure mode is quiet: a key is set, the provider
+reports itself configured, and every call falls through to the next rung. Hence
+every id being overridable by environment and the "set a key" message being built
+from the ladder rather than typed out.
+
+### Embeddings
+
+| Provider | Model id | Dimensions | Result |
+|---|---|---|---|
+| Mistral | `mistral-embed` | 1024 | works |
+| Cohere | `embed-v4.0` | 1536 | works |
+| Cohere | `embed-english-v3.0` | 1024 | works |
+| NVIDIA | `nvidia/nv-embedqa-e5-v5` | — | **410 Gone** |
+| NVIDIA | `baai/bge-m3` | — | **410 Gone** |
+
+### Embedding throughput
+
+Warm, against `mistral-embed`, after paying the import and TLS cost once:
+
+| Batch size | Total | Per item |
+|---|---|---|
+| 8 | 0.28s | 35.6 ms |
+| 32 | 0.56s | 17.4 ms |
+| 64 | 0.80s | **12.5 ms** |
+
+Against **2,400 ms/item** for local Ollama on a 2017 dual-core i5 — a factor of
+190. Batch size was 8, chosen when a batch took minutes locally and resumability
+was worth the throughput. Hosted, that reasoning inverts, so the batch size now
+follows the provider: 8 local, 64 hosted.
+
+### Scale, and why a threshold is not portable
+
+A thesis vector against three sentences, under `mistral-embed`:
+
+| Text | Cosine |
+|---|---|
+| A founder describing their own company | 0.742 |
+| An unrelated sentence about furniture | **0.567** |
+
+An irrelevant sentence scores 0.567. The shipped default threshold was 0.35, which
+under this provider passes essentially everything. Confirmed against the live
+corpus: median similarity 0.381, so the "gate" was passing roughly 60% of what was
+collected.
+
+Two consequences, both now enforced in code. A threshold is stored with the
+embedding model it was fitted against and ignored under any other. And which model
+produced each vector is recorded per row, because cosine between different
+dimensionalities is defined as zero by both fastpath implementations — so changing
+provider used to silently drop every older candidate to 0.0 rather than re-embed it.
+
 ## Run of 13 September 2026
 
 | | |

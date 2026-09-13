@@ -13,8 +13,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_every_suggested_sync_adds_without_removing():
+    # Every place the product tells someone what to type, not just the code and
+    # the README: the same footgun in SETUP.md breaks the same install.
+    candidates = list(ROOT.rglob("*.py")) + list(ROOT.rglob("*.md"))
     offenders = []
-    for path in list(ROOT.rglob("*.py")) + [ROOT / "README.md"]:
+    for path in candidates:
         if ".venv" in path.parts or path.name == Path(__file__).name:
             continue
         for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():

@@ -12,12 +12,22 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY vc_alpha ./vc_alpha
 COPY src ./src
-COPY config ./config
+COPY scripts ./scripts
+COPY examples ./examples
 
-RUN pip install --no-cache-dir . && python -c "import vc_alpha" || true
+RUN pip install --no-cache-dir .
 
-# Data lives on a mounted volume so it survives the container and so the operator
-# can see exactly what is stored. It never leaves their machine.
+# Build the C++ extension. build-essential is installed above for exactly this, and
+# the image previously carried the compiler without ever using it — so every image
+# paid for a toolchain and still ran the pure-Python fallback. Non-fatal: the
+# fallback is transparent and a build failure should not cost the whole image.
+RUN python scripts/build_ext.py || echo "extension not built; using pure Python"
+RUN python -c "from vc_alpha.fastpath import HAVE_FAST; print('fast extension:', HAVE_FAST)"
+
+# Everything this installation owns — database, theses, keys — lives under one
+# mounted directory, so it survives the container and the operator can see, back up
+# and delete exactly what is stored. It never leaves their machine.
+ENV VC_ALPHA_HOME=/app/data
 VOLUME ["/app/data"]
 EXPOSE 8420
 ENV VC_ALPHA_HOST=0.0.0.0

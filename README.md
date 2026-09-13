@@ -4,7 +4,9 @@ An evaluation engine for early-stage venture, that costs nothing to run.
 
 Give it a thesis written in plain English. It reads Hacker News, Substack, GitHub, Reddit, LinkedIn, WhatsApp exports and your own inbound, assembles what it finds into founder and company dossiers, scores each against your thesis with the evidence attached, and writes ranked results into a Google Sheet in the format your fund actually asked for.
 
-**Status:** working end to end. Six sources, 846 candidates, 1,076 entity mentions, 139 tests passing. Zero credentials and zero cost so far.
+**Status:** working end to end, and installable by someone who is not the author.
+Seven sources, 846 candidates, 375 tests passing. Every credential is free and
+entered in the app rather than exported in a shell. Zero cost so far.
 
 ### Why an evaluation engine and not another sourcing tool
 
@@ -30,7 +32,7 @@ The reason nobody does this cheaply is that the signal-to-noise ratio is brutal.
 
 ## How it works
 
-Five stages. Cost per item rises at every step, and volume falls faster.
+Eight stages. Cost per item rises at every step, and volume falls faster.
 
 ```
                                                     cost/item   survivors
@@ -38,20 +40,28 @@ Five stages. Cost per item rises at every step, and volume falls faster.
                      |
 2. FILTER     cheap predicates: age, job ads, questions   ~µs       ~93,000
                      |
-3. EMBED      cosine against thesis + founder-voice       ~ms        ~5,000
+3. EMBED      cosine against thesis + founder-voice     ~12ms        ~5,000
                      |
 4. TRIAGE     six weighted signals, each with a quote  ~1 call         ~200
                      |
 5. RESOLVE    mentions collapse into founders/companies    ~0          ~120
                      |
-6. WRITE      ranked dossiers in the fund's format          —          ~20
+6. RESEARCH   the shortlist only, opt-in              ~5 calls          ~40
+                     |
+7. WRITE      ranked dossiers in the fund's format          —          ~20
+                     |
+8. REVIEW     two buttons, and the labels feed 3 back       —           —
 ```
 
 Filtering sits **before** embedding, not after. Scoring is the expensive stage, so
 dropping the ineligible first is the cheapest win available — a rule taken from the
 six-stage ranking pattern popularised by xAI's open-sourced For You algorithm.
 
-The numbers are illustrative, not measured; the shape is the point. **Stage 2 does the real work.** Embedding a post costs milliseconds and no tokens, and it discards the overwhelming majority of what was collected. Everything after it operates on a set small enough to afford.
+The survivor counts are illustrative; the shape is the point. The cost figures are
+measured. **Stage 3 does the real work**: at 12ms an item it discards the
+overwhelming majority of what was collected, and everything after it operates on a
+set small enough to afford. The loop from 8 back to 3 is what stops stage 3's
+threshold being a guess.
 
 ### Stage 1 — Collect
 
@@ -61,13 +71,29 @@ Sources are walked as graphs, not scraped as lists. See [The frontier](#the-fron
 
 ### Stage 2 — Filter
 
-1. Apply each thesis's `exclude` terms as plain string gates. A hard exclude must never cost an embedding, let alone an inference call.
-2. Embed `raw_text`.
-3. Cosine against every active thesis vector.
-4. Keep the best score and which thesis produced it.
-5. Drop anything below threshold.
+Cheap string predicates: age, job ads, pure questions, and each thesis's `exclude`
+terms. A hard exclude must never cost an embedding, let alone an inference call.
+The reason is recorded rather than the row deleted, so over-filtering is visible
+instead of silent.
 
-**The threshold is the most consequential number in the system.** A candidate dropped here is never seen again by any later stage. Too high and real signal dies where nothing can rescue it; too low and stage 3 drowns and burns the daily free allowance. It currently sits at 0.35, which is a guess, and calibrating it against hand-labelled data is the single highest-leverage task outstanding.
+### Stage 3 — Embed
+
+1. Embed `raw_text` against the best available provider.
+2. Cosine against every active thesis vector, in both the fund's own words and the
+   same thesis as a founder would write it.
+3. Keep the best score and which thesis produced it.
+4. Drop anything below the threshold.
+
+**The threshold is the most consequential number in the system.** A candidate
+dropped here is never seen again by any later stage. Too high and real signal dies
+where nothing can rescue it; too low and stage 4 drowns and burns the daily free
+allowance. It is fitted from your own review decisions — see
+[Calibration](#calibration).
+
+Which embedding provider is configured is the single biggest lever on how long a
+run takes. Measured: **12.5 ms an item** hosted, against **2,400 ms** on a 2017
+dual-core i5 locally. The ladder is Mistral, then Cohere, then Gemini, then local
+Ollama, and the local rung is the only one private sources are ever given to.
 
 ### Stage 4 — Triage, as six separate questions
 
@@ -110,27 +136,65 @@ merges two things carrying conflicting identifiers** — Acme Security and Acme
 Analytics stay apart. A wrong merge silently corrupts a dossier a partner then acts
 on; a duplicate is merely untidy.
 
-### Stage 4 — Research
+### Stage 6 — Research, on the shortlist only
 
-Only the shortlist. For each survivor: who the founders are and what they did before, whether a product exists and who uses it, who else is doing this, why now, and any funding history the earlier stages missed.
+Opt-in, because it costs several calls a candidate. For each survivor: who the
+founders are and what they did before, whether a product exists and who uses it,
+who else is doing this, why now, and any funding history the earlier stages
+missed. Every field is checked back against the source text and dropped if it is
+not supported, so the report understates rather than invents.
 
-Person-level deduplication happens here, not at stage 1. The same founder appearing on Reddit, HN and Substack is three independent pieces of evidence at collection time, and one research document at this point.
+### Stage 7 — Write
 
-### Stage 5 — Write
-
-Appended to Google Sheets, ordered by score. Never rewritten, because a human editing the status column must not have their work destroyed by the next run. `sheet_row` tracks what has already been written.
+Appended to Google Sheets, ranked. Never rewritten, because a partner editing the
+status column must not have their work destroyed by the next run. `sheet_row`
+tracks what has already gone out.
 
 ```
-score = 0.3 * similarity          (stage 2 cosine)
-      + 0.5 * thesis_match        (stage 3 judgement)
-      + 0.2 * recency_decay(posted_at)
+score = w_similarity   * similarity        (stage 3 cosine)
+      + w_thesis_match * thesis_match      (stage 4 judgement)
+      + w_recency      * recency_decay(posted_at)
 ```
 
-Those weights are a starting guess, to be refitted once enough `was_good` labels exist.
+The weights start at 0.3 / 0.5 / 0.2 and stop being a guess as soon as there are
+enough review decisions to fit them. See **Calibration** below.
 
-### Stage 6 — Review
+### Stage 8 — Review
 
-One page listing candidates with two buttons: good, or not. That is the entire feature set. It exists to produce `was_good` labels, which are what let the threshold and the score weights be fitted rather than guessed. Any feature that does not serve that is out of scope.
+One page, two buttons: good, or not for us. That is the entire feature set.
+
+It exists to produce labels, and those labels are now read. `vc-alpha calibrate
+fit` turns them into the stage-2 threshold and the three score weights, and the
+Review screen shows how many more are needed before it can.
+
+## Calibration
+
+**The threshold was the largest open question in the product and it is now
+closed.** Stage 3 drops whatever scores below it, and nothing downstream can
+recover a candidate dropped there, so the number matters more than anything else
+here. It shipped at 0.35, guessed.
+
+Measured on the live corpus, the median candidate scored 0.381 — so that "gate"
+was passing roughly 60% of everything collected. Not a filter, a formality.
+
+```bash
+vc-alpha calibrate distribution   # where your scores actually sit
+vc-alpha calibrate fit            # fit the threshold and weights to your reviews
+vc-alpha calibrate show           # what is in force, and where it came from
+```
+
+Three things worth knowing:
+
+- **It refuses below 40 labels.** A threshold fitted from a dozen clicks carries
+  the authority of "measured" with the variance of a guess. The refusal tells you
+  how many more are needed.
+- **It optimises F2, not F1.** F1 treats a false positive and a false negative as
+  equally costly. They are not: reading a dud wastes a minute, missing a founder
+  means the round closes without you. F2 weights recall twice as heavily.
+- **A threshold belongs to an embedding model.** Providers score on completely
+  different scales — an unrelated sentence reaches 0.567 against a thesis under
+  `mistral-embed`. The model is recorded with the fit, and a mismatch falls back
+  to the default rather than silently applying the wrong bar.
 
 ---
 
@@ -209,16 +273,49 @@ The product must be free to operate. Not cheap, zero. Here is how each layer get
 
 Free tiers, no credit card, rotated by `vc_alpha/llm.py`.
 
-| Provider | Free allowance | Position |
-|---|---|---|
-| Google Gemini Flash | 1,500 requests/day | Primary |
-| Groq (llama-3.3-70b) | 1,000 req/day, 100K tokens/day | Fast short calls |
-| Cerebras | 1M tokens/day | Overflow |
-| GitHub Models | free within limits | Overflow, no new signup |
-| OpenRouter free models | 50 req/day | Last resort |
-| Ollama, local | unlimited | Offline fallback |
+Every model id below was checked against a live call on **14 September 2026**.
+This list has rotted before — two of the ids previously shipped here now return
+404 — so each is overridable by environment, and the "you need a key" message is
+built from the ladder rather than typed out, so it cannot name a dead provider.
 
-Roughly **3,000 classifications a day at zero cost**. Stage 2 cuts volume long before any of this is reached.
+| Provider | Model | Measured | Free allowance |
+|---|---|---|---|
+| Groq | `openai/gpt-oss-120b` | 4.8s | 1,000 req/day, binds on 8K tokens/min |
+| Mistral | `ministral-8b-latest` | **0.41s** | generous per minute; also does embeddings |
+| Google Gemini | `gemini-2.0-flash` | — | 1,500 req/day |
+| NVIDIA NIM | `nemotron-3-super-120b` | 4.6s | free credits |
+| OpenRouter | a rotating `:free` model | 29s | 50 req/day |
+| Ollama, local | your choice | 507s | unlimited, and the only private-safe rung |
+
+Groq leads because it is the only rung with measured evidence on this corpus —
+100% valid JSON across 93 triage calls. Mistral is ten times faster and is what
+actually carries a long run, because Groq's ceiling is tokens per minute, not
+requests per day, so a sustained pass throttles there and falls through.
+
+**Cerebras and SambaNova are listed in the code but answered "payment required"
+on a free key.** They are kept as rungs for a fund holding a paid key, placed
+below everything verified working, and cost one failed call that falls through.
+
+### Embeddings
+
+A separate ladder, because stage 3 runs over *everything* and is the one place
+the product cannot afford to be slow.
+
+| Provider | Model | Dimensions | Measured |
+|---|---|---|---|
+| Mistral | `mistral-embed` | 1024 | **12.5 ms/item** at batch 64 |
+| Cohere | `embed-v4.0` | 1536 | comparable |
+| Google Gemini | `text-embedding-004` | 768 | — |
+| Ollama, local | `qwen3-embedding:0.6b` | 1024 | 2,400 ms/item |
+
+NVIDIA is deliberately absent: its embedding endpoints answered 410 Gone on every
+published model id, and listing a rung that does not exist is worse than omitting
+it.
+
+Which vectors came from which model is recorded per row. Cosine between different
+dimensionalities is defined as zero by both implementations, so without that, a
+change of provider would silently drop every older candidate to 0.0 similarity —
+reading as "nothing matches any more" rather than "these need re-embedding".
 
 The router tracks each provider's daily usage in SQLite so counts survive restarts, and treats a 429 as better evidence than its own counter, since calls may have come from another machine.
 
@@ -226,7 +323,7 @@ The router tracks each provider's daily usage in SQLite so counts survive restar
 
 **Free tiers generally train on what you send them.** For a tool whose whole value is proprietary deal flow, that is a real cost, just not a monetary one.
 
-The mitigation is enforced in code, not documented and hoped for. `Router.complete()` takes a required `public_text` argument and raises `PrivateTextRefused` otherwise. Only text that was already published by someone else goes out. Thesis prose, match reasoning and assembled reports never leave the machine.
+The mitigation is enforced in code, not documented and hoped for. `Router.complete()` takes a required `sending` classification — `PUBLIC`, `REDACTED` or `PRIVATE` — and refuses the last outright. The judgement belongs with the caller, who knows the source; classifying a WhatsApp message as public because it was convenient is exactly how private conversation ends up in someone's training set. Only text somebody else already published goes out. Thesis prose, match reasoning and assembled reports never leave the machine, and private sources are embedded locally regardless of which keys are set.
 
 The reasoning: a Reddit post anyone can read is not the asset. The asset is the aggregation, the scoring against a private thesis, and the ranked shortlist. Those stay local. A fund uncomfortable even with public text leaving can point one config value at a paid or local endpoint, and nothing else in the codebase changes.
 
@@ -257,7 +354,7 @@ Input length barely changed the result, so this is compute-bound rather than tok
 
 ## Theses
 
-A thesis is two things in one file: the prose stage 2 embeds and matches against, and the report template the fund expects at the end. Both live in `config/theses/*.yaml`.
+A thesis is two things in one file: the prose stage 3 embeds and matches against, and the report template the fund expects at the end. Yours live in `~/.vc-alpha/config/theses/*.yaml`, or in `config/theses/` when running from a checkout; five worked examples ship in `examples/theses/`.
 
 ```yaml
 id: treeo
@@ -302,7 +399,7 @@ Every candidate is scored against all active theses and keeps its best match. Re
 
 SQLite, WAL mode. Three tables.
 
-**`candidates`** — one row per discovered thing. `id` is the sha256 of `source_url`, which is also uniquely constrained, so reruns are free. Columns fill in left to right as a row moves through the stages: `embedding`/`similarity`/`thesis_id` at stage 2, `triage_json`/`is_startup`/`confidence` at stage 3, `research_md` at 4, `score`/`sheet_row` at 5, `reviewed`/`was_good` at 6.
+**`candidates`** — one row per discovered thing. `id` is the sha256 of `source_url`, which is also uniquely constrained, so reruns are free. Columns fill in left to right as a row moves through the stages: `embedding`/`embedding_model`/`similarity`/`thesis_id` at stage 3, `triage_json`/`is_startup`/`confidence` at stage 4, `research_md` at 6, `score`/`sheet_row` at 7, `reviewed`/`was_good` at 8 — and those last two feed back into stage 3's threshold. `retention_until` is set at collection and enforced by a deletion job that actually runs.
 
 `retention_until` is present from the first migration rather than bolted on later, and `forget_author()` is a single function so a deletion request has exactly one code path.
 
@@ -364,6 +461,11 @@ data.** See [PRIVACY.md](PRIVACY.md).
 vc-alpha              # opens http://127.0.0.1:8420
 ```
 
+Run it from anywhere. An installed copy keeps its database, theses and keys in
+`~/.vc-alpha`; run it from a checkout and it uses the checkout instead, so
+development and an install do not fight over the same files. `$VC_ALPHA_HOME`
+overrides both.
+
 Docker, for firms whose IT policy prefers it:
 
 ```bash
@@ -380,8 +482,23 @@ It works without it. The pure-Python fallback is transparent.
 
 ### Adding your fund
 
-Open the **Setup** tab, paste the paragraph you already use to describe your fund,
-and it writes a commented config you can then edit. No YAML by hand.
+A fresh install ships with no thesis. Open the **Setup** tab, paste the paragraph
+you already use to describe your fund, and it writes a commented config you can
+then edit. No YAML by hand.
+
+Five real funds ship in `examples/theses/` as worked examples, including one whose
+report columns were specified by the fund itself. Copy one into your config
+directory if you would rather start by editing than by writing.
+
+### Adding your keys
+
+Also the **Setup** tab. Each free provider has a field, a link to the page that
+issues the key, and a **Test** button that spends one call proving it works — a
+key that is present but wrong is worse than a missing one, because the product
+reports itself configured and then fails somewhere less visible.
+
+Keys are written to `~/.vc-alpha/.env` at mode 0600 and are never shown again. If
+you would rather use environment variables, those still win over the file.
 
 ## Setup
 
@@ -390,31 +507,44 @@ git clone git@github.com:Coflazo/VC-Alpha-Signal-Finder.git
 cd VC-Alpha-Signal-Finder
 uv sync --inexact --extra dev
 
-# Collect. No credentials needed for these three.
-uv run python -m vc_alpha.collect --source hackernews --visits 5
-uv run python -m vc_alpha.collect --source substack   --visits 5
-uv run python -m vc_alpha.collect --source github     --visits 5
+vc-alpha status                    # what is configured, and what has been found
+vc-alpha collect hackernews        # no credentials needed for hn, substack, github
+vc-alpha score                     # stage 3, against every fund you have added
+vc-alpha run                       # stages 4 to 7
+vc-alpha report treeo              # or open the app and read it there
 
-# What the graph found, ranked by measured hit rate
-uv run python -m vc_alpha.collect --suggestions substack
+vc-alpha calibrate distribution    # where your scores actually sit
+vc-alpha calibrate fit             # replace the guessed threshold with a fitted one
 
-# Score against the theses
-uv run python -m vc_alpha.score_all --thesis treeo --top 15
+vc-alpha forget "name"             # erase one person, on request
+vc-alpha purge                     # delete everything past its retention date
 
 uv run pytest
 ```
 
+Every command takes `--json`. `vc-alpha` with no arguments opens the app, which is
+what someone typing the bare command almost certainly wanted.
+
 ### Optional credentials, all free
+
+Enter these in the **Setup** tab rather than here; the variable names are listed
+because environment variables still work and still take precedence.
 
 | Variable | From | Unlocks |
 |---|---|---|
-| `GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) | Primary inference and embeddings |
-| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) | Fast inference |
-| `CEREBRAS_API_KEY` | [cloud.cerebras.ai](https://cloud.cerebras.ai) | Overflow inference |
+| `MISTRAL_API_KEY` | [console.mistral.ai](https://console.mistral.ai) | **Inference and embeddings.** The one to set first. |
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) | Inference, the rung with measured evidence |
+| `COHERE_API_KEY` | [dashboard.cohere.com](https://dashboard.cohere.com) | Embeddings, if you would rather not use Mistral |
+| `GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) | Both, 1,500 req/day |
+| `NVIDIA_NIM_API_KEY` | [build.nvidia.com](https://build.nvidia.com) | Inference, the largest model on the ladder |
 | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | reddit.com/prefs/apps, script type | The Reddit collector |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Google Cloud, Sheets API enabled | Sheets output |
 
-None require a credit card. Without any of them, collection and stage 2 still run against local Ollama.
+None require a credit card. Without any of them, collection and stage 3 still run
+against local Ollama — correctly, but at 2,400 ms an item against 12.5 ms, which is
+the difference between a run you wait for and a run you leave.
+
+**Set one key and the product is usable. Set two and you will not hit a limit.**
 
 ---
 
@@ -437,11 +567,15 @@ Legitimate interest is a workable basis for B2B research, and it comes with obli
 
 Written down so they do not get decided by accident.
 
-- **The stage-2 threshold is uncalibrated.** 0.35 is a guess. Roughly 100 hand-labelled candidates would replace it with a number that has precision and recall attached. Highest-value hour available.
 - **Free tiers train on submitted data.** Mitigated by the public-text rule, not eliminated. A fund may reasonably want a paid endpoint.
 - **LinkedIn is legally and technically fragile.** Treated as a nice-to-have that must never break a run.
-- **How feedback loops back.** `was_good` labels could retune the threshold, adjust the triage prompt, or train a separate classifier. Undecided, and should stay undecided until there are labels.
+- **The free tiers keep moving.** Two model ids shipped here have already been retired, and two providers withdrew their free tier. Every id is overridable by environment for exactly this reason, but it wants checking every few months rather than assuming.
+- **Whether the fitted weights survive contact with a second fund.** The threshold and score weights are now fitted per installation. Whether one fund's fitted numbers generalise to another is unknown and should stay unknown until more than one fund has labelled anything.
 - **Public or private repo.** Public converts GitHub Actions from 2,000 minutes a month to unlimited, at the cost of publishing the code.
+
+Closed since the last revision: **the stage-2 threshold**, which was the largest of
+these. It is fitted from review decisions rather than guessed — see
+[Calibration](#calibration).
 
 ---
 
@@ -449,7 +583,10 @@ Written down so they do not get decided by accident.
 
 ```
 vc_alpha/
-├── db.py                  schema, retention, forget_author
+├── paths.py               where this installation keeps its data, decided once
+├── env.py                 reads the .env the Setup screen writes
+├── secrets.py             keys in, never out; 0600; whitelisted names only
+├── db.py                  schema, retention job, complete erasure
 ├── filters.py             cheap predicates, run before embedding
 ├── frontier.py            score-gated graph expansion, shared by all sources
 ├── theses.py              thesis prose, founder voice, weights, report fields
@@ -459,17 +596,19 @@ vc_alpha/
 ├── founders.py            entity scoring, corroboration, quote verification
 ├── warmpath.py            who you already know who is near this person
 ├── llm.py                 free-tier ladder, budgets, privacy guard
+├── calibrate.py           review labels → threshold and score weights
 ├── redact.py              fragment extraction for private sources
-├── triage.py  score.py  pipeline.py  calibrate.py
+├── triage.py  score.py  pipeline.py  onboard.py
 ├── collectors/            substack, hackernews, github, whatsapp, inbound,
 │                          reddit, linkedin — one protocol, seven sources
-├── enrich/embed.py        multi-vector matching, rank gating
+├── enrich/embed.py        embedding ladder, multi-vector matching, rank gating
 └── app/                   FastAPI + one page: dashboard, dossiers, review,
                            reports, sheet, setup
 
-config/theses/*.yaml       five real funds, each with its own weights and report
+examples/theses/*.yaml     five real funds, as worked examples to copy
+~/.vc-alpha/               your own data, config and keys, when installed
 SETUP.md                   exactly what you need to supply, all of it free
-docs/                      PLAN, COLLECTORS, TOOLCHAIN
+docs/                      PLAN, COLLECTORS, TOOLCHAIN, VALIDATION, MCP
 ```
 
 ## The quantitative models
@@ -570,9 +709,27 @@ ranks are observed.
 uv run vc-alpha            # http://127.0.0.1:8420
 ```
 
-Six screens. **Dashboard** with corpus counts and run controls. **Dossiers**, where
-each founder shows why they scored what they scored, with the quote behind every
-signal and a link to where it was said. **Review**, two buttons, which is what turns
-the stage-2 threshold from a guess into a measured number. **Reports** per fund in
-that fund's columns. **Sheet**, editable in place and written straight back.
-**Setup**, which lists exactly what is still missing.
+Six screens, and nothing in them needs a terminal.
+
+**Dashboard** — corpus counts, run controls, and how selective you should be right
+now given the capital and time you have left. On a fresh install it leads with the
+one thing you have to do first.
+
+**Dossiers** — each founder shows why they scored what they scored, with the quote
+behind every signal and a link to where it was said. Quotes are verified against
+the source text, so a fabricated one is dropped rather than shown.
+
+**Review** — two buttons, and a counter showing how close those clicks are to
+replacing the guessed threshold with a fitted one. Ordered by expected value of
+information, not by score: reviewing the top-ranked candidate teaches you almost
+nothing, because you were going to pursue it either way.
+
+**Reports** — per fund, in that fund's own columns.
+
+**Sheet** — your Google Sheet, editable in place and written straight back. The
+pipeline only ever appends, so your notes are never overwritten.
+
+**Setup** — every free credential with somewhere to paste it and a button that
+tests it, your fund's thesis from a paragraph of plain English, what this computer
+can run locally, and the privacy controls: what the retention period is, what is
+about to expire, and a way to erase one person on request.
