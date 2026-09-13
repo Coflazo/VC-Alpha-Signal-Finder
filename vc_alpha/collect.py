@@ -10,7 +10,7 @@ import argparse
 import logging
 import sqlite3
 
-from vc_alpha import frontier, theses
+from vc_alpha import env, frontier, theses
 from vc_alpha.collectors.base import CandidateRecord
 from vc_alpha.collectors.github import GitHubCollector
 from vc_alpha.collectors.hackernews import HackerNewsCollector
@@ -66,11 +66,12 @@ def store(conn: sqlite3.Connection, records: list[CandidateRecord], active) -> i
 
 
 def main() -> None:
+    env.load()
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--source", choices=sorted(COLLECTORS), default="substack")
     ap.add_argument("--visits", type=int, default=10)
     ap.add_argument("--depth", type=int, default=3)
-    ap.add_argument("--db", default="data/candidates.sqlite")
+    ap.add_argument("--db", default=None)
     ap.add_argument("--seed", action="append", help="extra node to start from")
     ap.add_argument("--suggestions", metavar="SOURCE",
                     help="show discovered nodes ranked by measured hit rate, then exit")

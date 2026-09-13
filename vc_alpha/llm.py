@@ -81,18 +81,45 @@ class Provider:
 
 
 # Ordered best-first. Every one is a free tier and none needs a payment card.
+#
+# Model ids are the most perishable thing in this file and the list has already
+# rotted once: `cerebras/llama-3.3-70b` and
+# `openrouter/meta-llama/llama-3.3-70b-instruct:free` were both shipped here and
+# both now return 404, because the providers retired them. Every id below was
+# checked against a live call on 14 September 2026 — see docs/VALIDATION.md — and
+# every one is overridable by environment so a retirement is a config change
+# rather than a release.
 LADDER = [
-    Provider("gemini", "GEMINI_API_KEY",
-             os.environ.get("GEMINI_MODEL", "gemini/gemini-2.0-flash"), 1500),
+    # Measured 100% valid JSON across 93 triage calls on this corpus, which no
+    # other rung has evidence for, so it leads despite not being the fastest.
+    # Binds on tokens per minute rather than requests per day.
     Provider("groq", "GROQ_API_KEY",
              os.environ.get("GROQ_MODEL", "groq/openai/gpt-oss-120b"), 1000),
+    # Ten times faster than anything else here (0.41s against 4.8s) and generous
+    # per minute, so it is what actually carries a long run once Groq's
+    # tokens-per-minute ceiling starts throttling.
+    Provider("mistral", "MISTRAL_API_KEY",
+             os.environ.get("MISTRAL_MODEL", "mistral/ministral-8b-latest"), 1000),
+    Provider("gemini", "GEMINI_API_KEY",
+             os.environ.get("GEMINI_MODEL", "gemini/gemini-2.0-flash"), 1500),
+    # The largest model on the ladder. Slower, and worth having when a candidate
+    # is genuinely ambiguous rather than for bulk triage.
+    Provider("nvidia", "NVIDIA_NIM_API_KEY",
+             os.environ.get("NVIDIA_MODEL",
+                            "nvidia_nim/nvidia/nemotron-3-super-120b-a12b"), 1000),
+    # Cerebras and SambaNova both answered "payment required" on a free key when
+    # this was last checked. Kept as rungs because a fund may hold a paid key and
+    # the only cost of an unusable one is a single failed call that falls through,
+    # but placed below everything that was verified working.
     Provider("cerebras", "CEREBRAS_API_KEY",
-             os.environ.get("CEREBRAS_MODEL", "cerebras/llama-3.3-70b"), 1000),
+             os.environ.get("CEREBRAS_MODEL", "cerebras/gpt-oss-120b"), 1000),
+    Provider("sambanova", "SAMBANOVA_API_KEY",
+             os.environ.get("SAMBANOVA_MODEL", "sambanova/gpt-oss-120b"), 1000),
     # One key reaching many models, with provider failover handled server-side.
-    # Small allowance, so it sits late: 20 requests a minute and 50 a day.
+    # Small allowance and measured at 29s a call, so it sits last before local.
     Provider("openrouter", "OPENROUTER_API_KEY",
              os.environ.get("OPENROUTER_MODEL",
-                            "openrouter/meta-llama/llama-3.3-70b-instruct:free"), 50),
+                            "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"), 50),
     # Always last, always available, needs no key. Slow on modest hardware, but it
     # is what makes the product work with nothing configured, and it is the only
     # option for private sources.
@@ -100,6 +127,18 @@ LADDER = [
              os.environ.get("OLLAMA_MODEL", "ollama/qwen2.5:3b-instruct-q4_K_M"),
              10_000_000),
 ]
+
+def set_a_key() -> str:
+    """The "what do I do now" sentence, built from the ladder rather than typed out.
+
+    The hardcoded version named three providers, one of which had been retired and
+    another of which no longer has a free tier. A message that tells someone to go
+    and get a key that will not work is worse than no message.
+    """
+    names = ", ".join(f"{p.env_key}" for p in LADDER if not p.local)
+    return (f"Set one of {names} — all free, no card — in the Setup screen, "
+            "or run 'ollama serve' to work entirely offline.")
+
 
 USAGE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS llm_usage (
@@ -198,8 +237,7 @@ class Router:
         usable = self.available()
         if not usable:
             raise NoCapacityLeft(
-                "no free capacity left today. Set GEMINI_API_KEY, GROQ_API_KEY or "
-                "CEREBRAS_API_KEY — all free, no card — or run 'ollama serve'."
+                f"no free capacity left today. {set_a_key()}"
             )
 
         import litellm

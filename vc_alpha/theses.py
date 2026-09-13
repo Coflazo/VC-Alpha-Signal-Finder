@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-CONFIG_DIR = Path("config/theses")
+from vc_alpha import paths
 
 
 @dataclass(slots=True)
@@ -93,9 +93,21 @@ def load(path: Path) -> Thesis:
     return Thesis(report_fields=fields, **raw)
 
 
-def load_all(directory: Path | str = CONFIG_DIR) -> list[Thesis]:
-    directory = Path(directory)
-    theses = [load(p) for p in sorted(directory.glob("*.yaml"))]
-    if not theses:
-        raise FileNotFoundError(f"no thesis configs in {directory}")
-    return theses
+# What every caller should say when there are no funds yet. One wording, so the
+# CLI, the app and the pipeline agree on what the user is supposed to do next.
+NO_FUNDS = ("No fund configured yet. Open the Setup tab and describe what you back, "
+            "or run `vc-alpha setup --name 'Fund' --prose '...'`.")
+
+
+def load_all(directory: Path | str | None = None) -> list[Thesis]:
+    """Every fund configured on this machine, or an empty list on a fresh install.
+
+    Empty rather than an exception: no fund yet is the ordinary state the first
+    time anyone runs this, and a fresh install should show them what to do rather
+    than a traceback. Callers that genuinely cannot proceed say so themselves,
+    using NO_FUNDS so the wording is the same everywhere.
+    """
+    directory = Path(directory) if directory is not None else paths.config_dir()
+    if not directory.is_dir():
+        return []
+    return [load(p) for p in sorted(directory.glob("*.yaml"))]

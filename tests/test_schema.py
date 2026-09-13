@@ -8,6 +8,7 @@ third builder cannot quietly reintroduce it.
 
 import pytest
 
+import conftest
 from vc_alpha import theses
 from vc_alpha.schema import is_strict_valid, strict_object
 from vc_alpha.signals import schema as triage_schema
@@ -35,13 +36,20 @@ def test_the_triage_schema_is_valid_in_its_nested_objects_too():
     assert set(nested["required"]) == {"score", "quote"}
 
 
-@pytest.mark.parametrize("fund", [t.id for t in theses.load_all()])
+# Loaded from the examples directory rather than via load_all(), because
+# parametrize runs at collection time — before the fixture that points
+# VC_ALPHA_HOME at a seeded temp dir — so load_all() returns nothing here and
+# the whole test silently becomes an empty parameter set.
+EXAMPLES = theses.load_all(conftest.EXAMPLE_THESES)
+
+
+@pytest.mark.parametrize("fund", [t.id for t in EXAMPLES])
 def test_every_funds_research_schema_is_strict_valid(fund):
     """Measured before the fix: every thesis omitted raising_when from required, so
     every research call would have been rejected on its first attempt."""
     from vc_alpha.output.report import research_schema
 
-    thesis = next(t for t in theses.load_all() if t.id == fund)
+    thesis = next(t for t in EXAMPLES if t.id == fund)
     assert is_strict_valid(research_schema(thesis)) == []
 
 

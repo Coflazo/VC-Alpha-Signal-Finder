@@ -19,6 +19,11 @@ class FakeEmbedder:
 
     VOCAB = ["founder", "built", "moved", "pre-seed", "checks", "portfolio", "colour"]
 
+    # Stored beside every vector so vectors from different providers are never
+    # compared. The real Embedder reports its model id here.
+    fingerprint = "fake/bag-of-words"
+    provider = "fake"
+
     def embed_many(self, texts):
         return [
             [float(t.lower().count(w)) for w in self.VOCAB] or [0.0] * len(self.VOCAB)
@@ -74,9 +79,10 @@ def test_founder_voice_lifts_a_first_hand_post():
 def _add(conn, cid, source, sim):
     conn.execute(
         """INSERT INTO candidates (id, source, source_url, raw_text, discovered_at,
-           retention_until, similarity, embedding)
-           VALUES (?,?,?,?,'2026-01-01','2027-01-01',?,?)""",
-        (cid, source, f"https://x/{cid}", "text", sim, pack([sim, 0.0])),
+           retention_until, similarity, embedding, embedding_model)
+           VALUES (?,?,?,?,'2026-01-01','2027-01-01',?,?,?)""",
+        (cid, source, f"https://x/{cid}", "text", sim, pack([sim, 0.0]),
+         FakeEmbedder.fingerprint),
     )
     conn.commit()
 

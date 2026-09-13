@@ -32,10 +32,10 @@ from typing import Any
 # perishable, which is why the version is pinned in pyproject.
 from mcp.server.mcpserver import MCPServer
 
-from vc_alpha import entities, founders, score, theses
+from vc_alpha import entities, env, founders, paths, score, theses
 from vc_alpha.db import connect
 
-DB = os.environ.get("VC_ALPHA_DB", "data/candidates.sqlite")
+env.load()
 
 # Sources whose text must not cross this boundary, mirroring app.main.LOCAL_ONLY.
 PRIVATE_SOURCES = {"whatsapp", "inbound"}
@@ -44,7 +44,7 @@ mcp = MCPServer("VC Alpha Signal Finder")
 
 
 def _db():
-    return connect(DB)
+    return connect(paths.db_path())
 
 
 def _safe_text(source: str, text: str | None, limit: int = 400) -> str:

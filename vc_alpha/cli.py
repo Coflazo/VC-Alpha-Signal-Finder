@@ -15,7 +15,8 @@ import json as jsonlib
 import sys
 from pathlib import Path
 
-DEFAULT_DB = "data/candidates.sqlite"
+# The database path is resolved by vc_alpha.paths, so an installed copy finds
+# its data wherever it lives rather than wherever the shell happens to be.
 
 
 def _emit(data, as_json: bool, render) -> None:
@@ -222,7 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="vc-alpha",
         description="Find early-stage startups before everyone else does. "
                     "Runs entirely on this machine.")
-    p.add_argument("--db", default=DEFAULT_DB, help=argparse.SUPPRESS)
+    p.add_argument("--db", default=None, help=argparse.SUPPRESS)
     p.add_argument("--json", action="store_true", help="machine-readable output")
     sub = p.add_subparsers(dest="command")
 
@@ -265,6 +266,11 @@ COMMANDS = {
 
 
 def main() -> None:
+    from vc_alpha import env, paths
+
+    # Before anything reads os.environ to decide what is configured.
+    env.load()
+    paths.ensure()
     args = build_parser().parse_args()
     # No subcommand opens the app, which is what someone who typed the bare command
     # almost certainly wanted.

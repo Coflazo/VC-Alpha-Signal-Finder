@@ -19,6 +19,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from vc_alpha import env
 from vc_alpha.db import connect
 
 
@@ -142,9 +143,10 @@ def evaluate(labels_path: Path) -> None:
 
 
 def main() -> None:
+    env.load()
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("command", choices=["distribution", "sample", "evaluate"])
-    ap.add_argument("--db", default="data/candidates.sqlite")
+    ap.add_argument("--db", default=None)
     ap.add_argument("--n", type=int, default=100)
     ap.add_argument("--labels", type=Path, default=Path("data/labels.csv"))
     args = ap.parse_args()

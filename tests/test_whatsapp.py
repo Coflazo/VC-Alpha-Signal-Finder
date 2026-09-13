@@ -173,9 +173,13 @@ def test_cloud_embedder_never_sees_whatsapp_rows(conn, monkeypatch):
     )
     conn.commit()
 
-    monkeypatch.setenv("GEMINI_API_KEY", "pretend")
+    # Any hosted provider, not a named one. The guard is about the row never
+    # reaching a cloud embedder, and naming Gemini here made the test depend on
+    # which provider happened to lead the ladder.
+    monkeypatch.setenv("MISTRAL_API_KEY", "pretend")
     cloud = Embedder()
-    assert cloud.provider == "gemini"
+    assert not cloud.provider_info.local
+
     def guard(texts):
         # Thesis prose is fine to embed in the cloud; the private message is not.
         if any("private chat" in x for x in texts):

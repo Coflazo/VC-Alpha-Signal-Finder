@@ -12,13 +12,14 @@ from __future__ import annotations
 import argparse
 import logging
 
-from vc_alpha import extract, founders, theses
+from vc_alpha import env, extract, founders, theses
 from vc_alpha.db import connect
 
 
 def main() -> None:
+    env.load()
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--db", default="data/candidates.sqlite")
+    ap.add_argument("--db", default=None)
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")

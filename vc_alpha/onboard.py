@@ -14,9 +14,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from vc_alpha import paths
 from vc_alpha.signals import SIGNALS
-
-CONFIG_DIR = Path("config/theses")
 
 # Stage words in the order a company passes through them, so "pre-seed to Series A"
 # can be read off the prose rather than asked for separately.
@@ -158,9 +157,9 @@ def build_yaml(name: str, prose: str, founder_voice: str = "",
 
 def create(name: str, prose: str, founder_voice: str = "",
            exclude: list[str] | None = None, hard_signals: list[str] | None = None,
-           directory: Path | str = CONFIG_DIR, overwrite: bool = False) -> Path:
+           directory: Path | str | None = None, overwrite: bool = False) -> Path:
     """Write a thesis config. Refuses to clobber an existing one unless told to."""
-    directory = Path(directory)
+    directory = Path(directory) if directory is not None else paths.config_dir()
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{slugify(name)}.yaml"
     if path.exists() and not overwrite:

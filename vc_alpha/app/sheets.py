@@ -22,13 +22,16 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from vc_alpha import paths
+
 log = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 # Where the service account JSON is looked for, in order.
 CREDENTIAL_ENV = "GOOGLE_SERVICE_ACCOUNT_JSON"
-CREDENTIAL_PATH = Path("config/service-account.json")
+# The service-account JSON lives beside the rest of the installation; see
+# vc_alpha/paths.py. Resolved on use so $VC_ALPHA_HOME is honoured.
 SHEET_ENV = "VC_ALPHA_SHEET_ID"
 
 
@@ -66,11 +69,12 @@ def _credentials_source() -> tuple[str, dict] | None:
                 return str(path), json.loads(path.read_text())
         except (ValueError, OSError) as e:
             log.warning("could not read %s: %s", CREDENTIAL_ENV, e)
-    if CREDENTIAL_PATH.exists():
+    stored = paths.credential_path()
+    if stored.exists():
         try:
-            return str(CREDENTIAL_PATH), json.loads(CREDENTIAL_PATH.read_text())
+            return str(stored), json.loads(stored.read_text())
         except (ValueError, OSError) as e:
-            log.warning("could not read %s: %s", CREDENTIAL_PATH, e)
+            log.warning("could not read %s: %s", stored, e)
     return None
 
 
@@ -95,7 +99,8 @@ def status() -> SheetStatus:
     if not creds:
         return SheetStatus(
             False,
-            f"No service account found. Put the JSON at {CREDENTIAL_PATH} or set "
+            f"No service account found. Put the JSON at {paths.credential_path()} "
+            f"or set "
             f"{CREDENTIAL_ENV}. Create one in Google Cloud, enable the Sheets API, "
             "then share the sheet with the service account's email address.",
             sheet_id,

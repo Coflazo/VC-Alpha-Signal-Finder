@@ -25,13 +25,14 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from vc_alpha import paths
 from vc_alpha.collectors.base import CandidateRecord, Collector, Neighbour, Visit
 from vc_alpha.db import now, retention_until
 from vc_alpha.redact import looks_like_lead
 
 log = logging.getLogger(__name__)
 
-EXPORT_DIR = Path("data/whatsapp")
+# Resolved on use, not at import: see vc_alpha/paths.py.
 
 # WhatsApp sprinkles these through exports; they break anchored patterns.
 _INVISIBLE = dict.fromkeys(map(ord, "‎‏‪‬﻿"), None)
@@ -158,9 +159,9 @@ class WhatsAppCollector(Collector):
     # here so it is visible at the source rather than buried in a config file.
     local_embedding_only = True
 
-    def __init__(self, conn: sqlite3.Connection, export_dir: Path = EXPORT_DIR):
+    def __init__(self, conn: sqlite3.Connection, export_dir: Path | None = None):
         self.conn = conn
-        self.export_dir = Path(export_dir)
+        self.export_dir = Path(export_dir) if export_dir else paths.whatsapp_dir()
 
     def seeds(self):
         if not self.export_dir.exists():

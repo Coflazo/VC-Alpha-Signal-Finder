@@ -6,8 +6,6 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-DEFAULT_PATH = Path("data/candidates.sqlite")
-
 # How long a candidate is kept before the retention job deletes it.
 # These are people's posts and profiles, so this is a GDPR obligation, not a preference.
 RETENTION_DAYS = 365
@@ -25,6 +23,11 @@ CREATE TABLE IF NOT EXISTS candidates (
   posted_at       TEXT,
 
   embedding       BLOB,
+  -- Which model produced `embedding`. Vectors from different providers have
+  -- different dimensionalities and cosine between them is defined as zero, so
+  -- mixing them silently zeroes every older score instead of erroring. Stored so
+  -- a provider change is detected and re-embedded rather than quietly wrong.
+  embedding_model TEXT,
   similarity      REAL,
   thesis_id       TEXT,
 
@@ -99,9 +102,15 @@ CREATE TABLE IF NOT EXISTS author_activity (
 """
 
 
-def connect(path: Path | str = DEFAULT_PATH) -> sqlite3.Connection:
-    """Open the database, creating it and its parent directory if needed."""
-    path = Path(path)
+def connect(path: Path | str | None = None) -> sqlite3.Connection:
+    """Open the database, creating it and its parent directory if needed.
+
+    Resolved on call rather than at import, so `$VC_ALPHA_HOME` and `$VC_ALPHA_DB`
+    still work when they are set after this module has been imported.
+    """
+    from vc_alpha import paths
+
+    path = Path(path) if path is not None else paths.db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -109,7 +118,23 @@ def connect(path: Path | str = DEFAULT_PATH) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+    migrate(conn)
     return conn
+
+
+# Columns added after the first release. `CREATE TABLE IF NOT EXISTS` leaves an
+# existing table alone, so a schema change is invisible until a query fails on live
+# data. Applied explicitly, the same way entities.install does.
+_ADDED_COLUMNS = {"candidates": {"embedding_model": "TEXT"}}
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    for table, columns in _ADDED_COLUMNS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns.items():
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    conn.commit()
 
 
 def now() -> str:

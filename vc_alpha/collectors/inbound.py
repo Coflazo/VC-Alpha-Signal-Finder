@@ -22,11 +22,12 @@ import email.policy
 import logging
 from pathlib import Path
 
+from vc_alpha import paths
 from vc_alpha.collectors.base import CandidateRecord, Collector, Neighbour, Visit
 
 log = logging.getLogger(__name__)
 
-INBOX_DIR = Path("data/inbound")
+# Resolved on use, not at import: see vc_alpha/paths.py.
 
 # Forwarding wrappers and signature blocks carry no signal and drown the pitch.
 _CUT_AT = (
@@ -125,8 +126,8 @@ class InboundCollector(Collector):
     source = "inbound"
     local_only = True   # a fund's private deal flow stays on the fund's machine
 
-    def __init__(self, inbox: Path = INBOX_DIR):
-        self.inbox = Path(inbox)
+    def __init__(self, inbox: Path | None = None):
+        self.inbox = Path(inbox) if inbox else paths.inbox_dir()
 
     def seeds(self):
         if not self.inbox.exists():

@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from vc_alpha import entities, founders, score, theses, warmpath
+from vc_alpha import entities, env, founders, paths, score, theses, warmpath
 from vc_alpha.app import sheets
 from vc_alpha.app.jobs import runner
 from vc_alpha.db import connect
@@ -34,7 +34,12 @@ from vc_alpha.quant.information import (
 log = logging.getLogger(__name__)
 
 STATIC = Path(__file__).parent / "static"
-DB = os.environ.get("VC_ALPHA_DB", "data/candidates.sqlite")
+
+# Keys the user saved in the Setup screen live in a file, not the shell that
+# launched this, so they have to be read before anything asks whether a
+# provider is configured.
+env.load()
+paths.ensure()
 
 # Sources that cannot run on a shared runner, and why. Surfaced in the UI so the
 # split is visible rather than folklore.
@@ -49,7 +54,7 @@ app = FastAPI(title="VC Alpha Signal Finder")
 
 
 def db() -> sqlite3.Connection:
-    return connect(DB)
+    return connect(paths.db_path())
 
 
 @app.get("/")
