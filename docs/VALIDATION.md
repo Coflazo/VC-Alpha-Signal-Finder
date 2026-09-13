@@ -90,20 +90,110 @@ model that guesses more produces undetected errors as well as detected ones, and
 only the detected ones appear in that table. And five candidates is a small sample;
 the difference between 9 and 13 facts is a handful of fields.
 
-**Conclusion: keep the prompt, and tune it.** It is doing the thing it was written
-for, but it is over-warning and suppressing legitimate extraction along with the
-guesses. The next revision should keep the anti-invention framing and drop the
-repetition that makes the model treat "unknown" as the safe default answer. That is
-a measurable change, so it will be measured.
+**Conclusion at that point: keep the prompt, and tune it.** It was over-warning —
+three separate warnings about guessing in 352 tokens, with a cost attached to
+inventing and none attached to omitting, so the model faced a one-way incentive.
 
-Recorded here rather than quietly re-run until it looked better.
+### After tuning
+
+The rule was stated once instead of three times, and the missing counterweight added:
+omitting something the post does state costs the reader the company. Same five
+candidates, same model.
+
+| | Without | With, first version | With, tuned |
+|---|---|---|---|
+| Invention rate | 36.4% | 18.2% | **15.4%** |
+| Filled-field rate | 74.0% | 40.0% | **46.0%** |
+| True facts surviving | 14 | 9 | 11 |
+
+Tuning moved both numbers the right way. The prompt now cuts fabrication by
+**58%** and recovers some of the lost extraction.
+
+**It still does not flip the net calculation, and that is worth saying plainly.**
+After grounding strips unsupported fields, the run without a system prompt delivers
+14 real facts against 11 with it. On this evidence the prompt costs net information.
+
+The measurement cannot settle it, for a reason worth stating rather than glossing:
+**it can only count the inventions the grounding check catches.** Grounding is a
+loose prefix match. Eight detected inventions in the careless arm almost certainly
+means undetected ones as well — a plausible founding date that appears nowhere in
+the post would pass. Two detected in the careful arm implies fewer hidden ones. So
+the true-fact counts above flatter the arm that guesses more.
+
+What is established, across two runs in the same direction: **the prompt trades
+recall for precision, reliably.** Whether that trade is worth it depends on how much
+one trusts a heuristic grounding check, and the honest answer is not very much. The
+prompt stays.
+
+The cheaper improvement is probably not more prompt tuning but better grounding,
+since that is deterministic, costs nothing at inference time, and does not halve the
+fill rate. Recorded as the next thing to try rather than presented as done.
+
+## Stage 4 over every ranked candidate
+
+The first end-to-end research run across all five funds: 24 ranked candidates, every
+one researched, no failures. It produced the artefact the whole pipeline exists to
+produce, `data/reports/treeo.csv` and its equivalents, with real company names and
+live URLs in the columns rather than empty ones.
+
+Three things went wrong, and finding them is most of what the run was for.
+
+**Thinking ate the answer.** The first attempt failed with `json_validate_failed` and
+an empty `failed_generation`. gpt-oss-20b is a reasoning model, and its thinking is
+billed against the same output budget as its reply: measured on one research prompt,
+4,919 characters of reasoning against 353 of answer. When the thinking ran past the
+ceiling the answer came back empty, which a strict schema rejects outright. Setting
+`reasoning_effort` to `low` cut a call from 1,486 tokens to 905 and ended the failures
+— extraction from a supplied text does not need deliberation. The run went from 4
+candidates in 375 seconds with errors to 19 in 90 seconds with none.
+
+**The sentinel was louder than the fact.** Fields blanked by the grounding check were
+being written as `unknown (not stated in the source)`. In a spreadsheet column that
+reads as noise next to the model's own `unknown`, and both mean the same thing to a
+partner. It also inflated the first fill-rate reading, which counted the sentinel as
+a filled cell. Now both are `unknown`; which fields were blanked is still returned by
+`ground_report`, where it is actually useful.
+
+**Caution leaked into the fields that do not take it.** Six of 23 reports came back
+with `description: "unknown"` for posts that plainly described a product. The
+description and the fit are written, not extracted, so `unknown` is never right for
+them. Saying so explicitly fixed the description immediately — and left fit at 9/15,
+because the sentence justified only the description and the model applied it only
+there. Naming both took fit to 13/15. Stating one branch of a rule and expecting the
+other to follow has now failed twice in this file.
+
+Fill rate for Treeo, 15 candidates, after all three fixes:
+
+| Field | Filled |
+|---|---|
+| Description | 14/15 |
+| Your input (fit) | 13/15 |
+| Startup name | 13/15 |
+| Website | 10/15 |
+| Are they currently raising? | 8/15 |
+| Geographic focus | 8/15 |
+| Founders' names and contact info | 2/15 |
+| Based in | 0/15 |
+| Founded in | 0/15 |
+| **Overall** | **68/150 = 45%** |
+
+The zeroes are not a bug. Reddit and Hacker News posts rarely state a location or a
+founding date, and the prompt forbids inferring one from a timezone or a domain
+suffix. A blank there is the honest answer; filling it would mean guessing. The
+fields that can be answered from a post — what the company does, whether it fits,
+what it is called, where to find it — are answered most of the time.
+
+What this does not measure is whether the filled values are *correct*. Grounding
+checks that a claim appears in the source, not that the source was right, and nothing
+checks the fit assessments at all, since fit is judgement rather than fact.
 
 ## What is still unmeasured
 
 Stated plainly rather than implied:
 
-- **Stage 4 research** has not been run at scale. The report fields are generated but
-  the quality of the research output is unmeasured.
+- **Research quality is unverified.** Stage 4 now runs to completion over every ranked
+  candidate, and the fill rates above are real, but no human has read the 24 reports
+  and said which are accurate.
 - **The stage-2 threshold is still uncalibrated.** It needs roughly 100 human labels
   from the review queue, and those do not exist yet. Everything downstream inherits
   whatever error that threshold carries.

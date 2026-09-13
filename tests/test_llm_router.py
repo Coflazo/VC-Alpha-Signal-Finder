@@ -115,6 +115,46 @@ def test_model_names_are_overridable_by_environment():
     assert out.stdout.strip() == "groq/something-else", out.stderr[-300:]
 
 
+# --- what actually goes on the wire ------------------------------------------
+
+
+@pytest.fixture
+def sent(conn, monkeypatch):
+    """Capture the kwargs of one call instead of making it."""
+    import types
+
+    import litellm
+
+    captured = {}
+
+    def fake(**kwargs):
+        captured.update(kwargs)
+        msg = types.SimpleNamespace(content='{"ok": true}')
+        return types.SimpleNamespace(
+            model="fake/model-a", choices=[types.SimpleNamespace(message=msg)]
+        )
+
+    monkeypatch.setattr(litellm, "completion", fake)
+    Router(conn, ladder=[A]).complete("hello", sending=Sending.PUBLIC)
+    return captured
+
+
+def test_reasoning_is_capped_so_thinking_does_not_eat_the_answer(sent):
+    """gpt-oss-20b spent 4,900 characters reasoning and 350 answering, and once the
+    thinking ran past the ceiling the answer came back empty — which a strict schema
+    rejects outright. Extraction from a given text does not need deliberation."""
+    assert sent["reasoning_effort"] == "low"
+    assert sent["max_tokens"] >= 1000, "too low a ceiling truncates the report itself"
+
+
+def test_unsupported_parameters_are_dropped_rather_than_erroring(sent):
+    """Not every provider on the ladder takes reasoning_effort, and a fallback that
+    500s on an unknown parameter is worse than one that ignores it."""
+    import litellm
+
+    assert litellm.drop_params is True
+
+
 # --- reply parsing -----------------------------------------------------------
 
 

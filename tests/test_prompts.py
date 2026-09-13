@@ -21,7 +21,36 @@ def test_every_prompt_stays_within_budget(task):
 @pytest.mark.parametrize("task", sorted(BY_TASK))
 def test_every_prompt_states_the_cost_of_inventing(task):
     """The failure both prompts exist to prevent."""
-    assert "unknown" in BY_TASK[task].lower()
+    assert "invent" in BY_TASK[task].lower() or "guess" in BY_TASK[task].lower()
+
+
+def test_research_states_the_cost_of_omitting_too():
+    """The measured fault. With only a penalty for inventing and none for omitting,
+    the model answered "unknown" whenever unsure and the filled-field rate fell from
+    74% to 40% — removing more truth than falsehood."""
+    p = BY_TASK["research"].lower()
+    assert "omitting" in p and "costs them the company" in p
+
+
+def test_the_research_rule_is_stated_once_not_three_times():
+    """It was stated three times in 352 tokens, which breaks this file's own rule
+    that every sentence be additive, and taught the model that "unknown" is the safe
+    default answer."""
+    assert BY_TASK["research"].lower().count('"unknown"') <= 2
+
+
+def test_written_fields_are_excused_from_the_unknown_rule():
+    """Six of 23 reports in the first real run came back with description "unknown",
+    for posts that plainly described a product. The caution meant for the factual
+    fields had leaked into the two fields that are always writable.
+
+    Covering both by name matters: a first version justified only the description, and
+    the model kept answering "unknown" for fit in exactly the same six reports.
+    """
+    p = BY_TASK["research"].lower()
+    written = p[p.index("<written_fields>"):p.index("</written_fields>")]
+    assert '"unknown" is never the answer' in written
+    assert "description" in written and "fit" in written
 
 
 def test_triage_defends_calibration():

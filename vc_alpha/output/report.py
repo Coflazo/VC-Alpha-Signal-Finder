@@ -70,7 +70,11 @@ def research_schema(thesis: Thesis) -> dict:
 FACTUAL_FIELDS = {"startup_name", "website", "based_in", "founded_in", "founders",
                   "turkish_link", "traction", "raising_now"}
 
-NOT_STATED = "unknown (not stated in the source)"
+# Reads in a fund's spreadsheet next to the model's own "unknown", which is what a
+# partner wants: both mean nobody knows. Which fields were blanked for being
+# ungrounded is still returned by ground_report, so the distinction survives where
+# it is useful without filling a column with an explanation of itself.
+NOT_STATED = "unknown"
 
 
 def _grounded(value: str, source: str) -> bool:
