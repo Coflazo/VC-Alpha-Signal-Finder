@@ -180,7 +180,8 @@ class Router:
                 if p.configured and self.budget.used(p.name) < p.daily_requests]
 
     def complete(self, prompt: str, *, schema: dict | None = None,
-                 sending: Sending) -> dict[str, Any] | str:
+                 sending: Sending, system: str | None = None
+                 ) -> dict[str, Any] | str:
         """Run a prompt against the best available provider.
 
         `sending` is not a formality. Classifying a WhatsApp message as PUBLIC
@@ -205,9 +206,11 @@ class Router:
         litellm.suppress_debug_info = True
 
         primary, *rest = usable
+        messages = ([{"role": "system", "content": system}] if system else []) + \
+                   [{"role": "user", "content": prompt}]
         kwargs: dict[str, Any] = {
             "model": primary.model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "temperature": 0,
             # LiteLLM retries with backoff and honours each provider's published
             # rate limits, which is the part the hand-rolled version never got right.

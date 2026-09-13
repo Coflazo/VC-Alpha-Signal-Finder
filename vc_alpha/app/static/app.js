@@ -435,8 +435,31 @@ async function loadReport() {
 
 // --- sheet -------------------------------------------------------------------
 
-LOADERS.sheet = loadSheet;
+LOADERS.sheet = async () => {
+  const sel = $("#sheet-fund");
+  if (!sel.options.length) {
+    const { theses } = await api("/api/theses");
+    FUNDS = theses;
+    theses.forEach((t) => sel.append(el("option", { value: t.id, textContent: t.name })));
+  }
+  loadSheet();
+};
 $("#sheet-refresh").onclick = loadSheet;
+
+$("#sheet-push").onclick = async () => {
+  const btn = $("#sheet-push");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/sheet/push", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ thesis: $("#sheet-fund").value }),
+    });
+    $("#sheet-note").textContent = r.detail;
+    if (r.appended) loadSheet();
+  } catch (e) {
+    $("#sheet-note").textContent = e.message;
+  } finally { btn.disabled = false; }
+};
 
 async function loadSheet() {
   const d = await api("/api/sheet");

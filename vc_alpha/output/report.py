@@ -10,58 +10,119 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
+import re
 import sqlite3
 from pathlib import Path
 
 from vc_alpha.llm import Router, Sending
+from vc_alpha.prompts import for_task
+from vc_alpha.schema import strict_object
 from vc_alpha.theses import Thesis
 
-RESEARCH_PROMPT = """Research this company from the post below and fill in the report.
+log = logging.getLogger(__name__)
 
-Post:
+RESEARCH_PROMPT = """Fill in the report from this post.
+
 ---
 {text}
 ---
 Source: {url}
 
-Fill in every field. Where the post does not say and you cannot reasonably infer,
-write "unknown" rather than guessing. Guessing here is worse than a gap, because a
-partner will act on this.
-
-Fields:
-{fields}
-
 Answer as JSON with exactly these keys: {keys}"""
 
 
+# The pitch is at the top of a post; the tail is comments and boilerplate. Passing
+# 8,000 characters cost tokens without adding information, and at 8,000 tokens per
+# minute on the free tier that was the difference between three research calls a
+# minute and six.
+RESEARCH_SOURCE_CHARS = 3000
+
+
 def research_prompt(text: str, url: str, thesis: Thesis) -> str:
-    lines = []
-    for f in thesis.report_fields:
-        bit = f"- {f.key} ({f.label})"
-        if f.hint:
-            bit += f": {f.hint}"
-        if f.only_if:
-            bit += f" [only when {f.only_if}, otherwise \"n/a\"]"
-        lines.append(bit)
+    # Field names only. The schema already carries every hint and condition, so
+    # repeating them here paid for the same instruction twice.
     keys = ", ".join(f.key for f in thesis.report_fields)
     return RESEARCH_PROMPT.format(
-        text=text[:8000], url=url, fields="\n".join(lines), keys=keys
+        text=text[:RESEARCH_SOURCE_CHARS], url=url, fields=keys, keys=keys
     )
+
+
+def research_schema(thesis: Thesis) -> dict:
+    """The report this fund asked for, as a strict-mode schema.
+
+    Every field is required. Strict mode has no optional properties, and omitting
+    the conditional ones got every request rejected. A field that does not apply
+    comes back as "n/a", which to_markdown already hides.
+    """
+    return strict_object(
+        {f.key: {"type": "string",
+                 "description": (f.hint or f.label)
+                 + (f' (write "n/a" unless {f.only_if})' if f.only_if else "")}
+         for f in thesis.report_fields})
+
+
+# Fields whose answer can only come from the post. A model that produces one of
+# these without support in the text has invented it.
+#
+# Description, "your input" and similar are synthesis — the model is *supposed* to
+# generate those — so checking them would be a category error.
+FACTUAL_FIELDS = {"startup_name", "website", "based_in", "founded_in", "founders",
+                  "turkish_link", "traction", "raising_now"}
+
+NOT_STATED = "unknown (not stated in the source)"
+
+
+def _grounded(value: str, source: str) -> bool:
+    """Does the post actually support this value?
+
+    Compared loosely: lowercased, with URL scheme and trailing slash removed, on a
+    prefix, because a model reformats what it copies. The aim is to catch invention,
+    not to demand a byte-for-byte match.
+    """
+    v = re.sub(r"^https?://|/$", "", (value or "").lower().strip())
+    if not v or v in ("unknown", "n/a", "none", "yes", "no", "y", "n"):
+        return True                     # nothing asserted, nothing to check
+    haystack = re.sub(r"^https?://", "", (source or "").lower())
+    return v[:40] in haystack
+
+
+def ground_report(report: dict, source_text: str, thesis: Thesis) -> tuple[dict, list[str]]:
+    """Blank out factual claims the source does not support.
+
+    Measured on real output: a model reported "Based in: San Francisco, USA" for a
+    post that never mentions a location. A partner reads that and acts on it, which
+    makes an invented fact worse than an admitted gap — it looks like information.
+
+    Same rule already applied to quotes, extended to the report. Returns the cleaned
+    report and the list of fields that were removed, so the removal is visible
+    rather than silent.
+    """
+    removed = []
+    for f in thesis.report_fields:
+        if f.key not in FACTUAL_FIELDS:
+            continue
+        value = str(report.get(f.key, "")).strip()
+        if value and not _grounded(value, source_text):
+            report[f.key] = NOT_STATED
+            removed.append(f.key)
+    return report, removed
 
 
 def research(
     router: Router, row: sqlite3.Row, thesis: Thesis,
     sending: Sending = Sending.PUBLIC,
 ) -> dict:
-    schema = {
-        "type": "object",
-        "properties": {f.key: {"type": "string"} for f in thesis.report_fields},
-        "required": [f.key for f in thesis.report_fields if f.required],
-    }
-    return router.complete(
+    schema = research_schema(thesis)
+    report = router.complete(
         research_prompt(row["raw_text"], row["source_url"], thesis),
-        schema=schema, sending=sending,
+        schema=schema, sending=sending, system=for_task("research"),
     )
+    report, removed = ground_report(dict(report), row["raw_text"] or "", thesis)
+    if removed:
+        log.info("dropped unsupported fields for %s: %s",
+                 row["source_url"], ", ".join(removed))
+    return report
 
 
 def to_markdown(report: dict, thesis: Thesis) -> str:

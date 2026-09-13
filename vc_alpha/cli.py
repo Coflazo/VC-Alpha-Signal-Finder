@@ -158,6 +158,13 @@ def cmd_report(args) -> int:
 
     conn = connect(args.db)
     rows = score.ranked(conn, args.fund, limit=args.limit)
+
+    if args.to_sheet:
+        from vc_alpha.output.sheets_writer import push
+        result = push(conn, thesis, rows)
+        _emit(result.as_dict(), args.json, lambda d: print(f"  {d['detail']}"))
+        return 0 if result.configured else 1
+
     if args.csv:
         path = write_csv(conn, thesis, rows, Path(args.csv))
         print(f"  wrote {len(rows)} rows to {path}")
@@ -240,6 +247,8 @@ def build_parser() -> argparse.ArgumentParser:
     rep.add_argument("fund")
     rep.add_argument("--limit", type=int, default=25)
     rep.add_argument("--csv", help="write to this file instead of printing")
+    rep.add_argument("--to-sheet", action="store_true",
+                     help="append new rows to the fund's Google Sheet")
 
     st = sub.add_parser("setup", help="check this computer and install local AI")
     st.add_argument("--no-download", action="store_true")

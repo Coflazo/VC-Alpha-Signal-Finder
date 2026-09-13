@@ -633,6 +633,23 @@ def sheet() -> dict:
     }
 
 
+class PushRequest(BaseModel):
+    thesis: str
+    limit: int = 200
+
+
+@app.post("/api/sheet/push")
+def push_to_sheet(req: PushRequest) -> dict:
+    """Append findings for one fund. Never touches rows already there."""
+    from vc_alpha.output.sheets_writer import push
+
+    thesis = next((t for t in theses.load_all() if t.id == req.thesis), None)
+    if not thesis:
+        raise HTTPException(404, "no such fund")
+    conn = db()
+    return push(conn, thesis, score.ranked(conn, req.thesis, limit=req.limit)).as_dict()
+
+
 class CellEdit(BaseModel):
     row: int      # 1-indexed, including the header row
     column: int   # 1-indexed

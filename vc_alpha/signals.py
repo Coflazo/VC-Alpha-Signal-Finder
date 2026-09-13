@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from vc_alpha.schema import strict_object
+
 
 @dataclass(frozen=True, slots=True)
 class Signal:
@@ -103,18 +105,11 @@ def schema() -> dict:
     # otherwise, with a 400 rather than a degraded answer. Found by calling a real
     # endpoint; no amount of local testing would have surfaced it.
     props = {
-        s.key: {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "score": {"type": "number", "description": "0 to 1"},
-                "quote": {
-                    "type": "string",
-                    "description": "Verbatim text supporting this, or empty if none",
-                },
-            },
-            "required": ["score", "quote"],
-        }
+        s.key: strict_object({
+            "score": {"type": "number", "description": "0 to 1"},
+            "quote": {"type": "string",
+                      "description": "Verbatim text supporting this, or empty if none"},
+        })
         for s in SIGNALS
     }
     props["stage"] = {
@@ -122,9 +117,4 @@ def schema() -> dict:
         "enum": ["idea", "prototype", "pre-seed", "seed", "later", "unknown"],
     }
     props["summary"] = {"type": "string", "description": "One sentence on the company"}
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": props,
-        "required": [s.key for s in SIGNALS] + ["stage", "summary"],
-    }
+    return strict_object(props)

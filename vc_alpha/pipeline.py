@@ -18,6 +18,7 @@ from vc_alpha.db import connect
 from vc_alpha.enrich.embed import survivors_by_rank
 from vc_alpha.llm import NoCapacityLeft, Router, Sending
 from vc_alpha.output.report import research, write_csv
+from vc_alpha.output.sheets_writer import push
 from vc_alpha.redact import extract
 
 log = logging.getLogger(__name__)
@@ -40,6 +41,8 @@ def main() -> None:
     ap.add_argument("--research", action="store_true",
                     help="also run stage 4, which costs several calls per candidate")
     ap.add_argument("--out", type=Path, default=OUT_DIR)
+    ap.add_argument("--to-sheet", action="store_true",
+                    help="also append new rows to the fund's Google Sheet")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -120,6 +123,10 @@ def main() -> None:
             continue
         path = write_csv(conn, t, rows, args.out / f"{t.id}.csv")
         log.info("%-12s %2d candidates -> %s", t.name, len(rows), path)
+
+        if args.to_sheet:
+            result = push(conn, t, rows)
+            log.info("%-12s %s", t.name, result.detail)
 
     for u in router.budget.report():
         log.info("  %s: %d requests today", u["provider"], u["requests"])

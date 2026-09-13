@@ -100,11 +100,21 @@ def test_unparseable_triage_json_does_not_break_rescoring(conn):
     assert conn.execute("SELECT score FROM candidates WHERE id='bad'").fetchone()[0] is not None
 
 
-def test_research_prompt_carries_every_field_and_the_conditional(treeo):
+def test_research_prompt_carries_every_field(treeo):
     p = research_prompt("a post", "https://x/1", treeo)
     for f in treeo.report_fields:
         assert f.key in p, f"{f.key} missing from research prompt"
-    assert "only when" in p, "conditional field lost its condition"
+
+
+def test_conditions_live_in_the_schema_not_the_prompt(treeo):
+    """Hints and conditions used to appear in both, paying for the same instruction
+    twice. At 8,000 tokens a minute that was three research calls a minute instead
+    of six, so the prompt now carries field names and the schema carries meaning."""
+    from vc_alpha.output.report import research_schema
+
+    schema = research_schema(treeo)
+    assert "n/a" in schema["properties"]["raising_when"]["description"]
+    assert "only when" not in research_prompt("a post", "https://x/1", treeo)
 
 
 def test_markdown_hides_conditional_fields_that_do_not_apply(treeo):

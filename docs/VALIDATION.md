@@ -60,6 +60,44 @@ Latency per call, measured:
 | Groq via LiteLLM | **2.4 s** |
 | Local Ollama, 3B, on a 2017 dual-core i5 | 507 s |
 
+## System prompts, A/B on 13 September 2026
+
+Purpose-built system prompts were added for triage and research. The obvious
+question is whether they help, and the product already tracks the metric that
+answers it, so it was measured rather than assumed. Five Show HN candidates, same
+inputs, same model, with and without the research system prompt.
+
+| | Without | With |
+|---|---|---|
+| Factual claims made | 22 | 11 |
+| Of those, invented | 9 | 2 |
+| **Invention rate** | **40.9%** | **18.2%** |
+| Filled-field rate | 74.0% | 40.0% |
+| Latency | 1.3 s | 2.5 s |
+
+**The result is mixed, and the honest reading is not the flattering one.**
+
+The prompt more than halves the invention rate, which is what it was written to do.
+But it also makes the model far more conservative, and the arithmetic underneath
+matters: without the prompt, 22 claims minus 9 inventions leaves **13 true facts**;
+with it, 11 minus 2 leaves **9**. Since `ground_report` removes ungrounded fields
+either way, the cautious prompt currently ends up delivering *less* real information
+to a partner.
+
+Two things stop that from being a verdict against it. The grounding check is a loose
+prefix match, so it catches obvious inventions and certainly misses subtle ones — a
+model that guesses more produces undetected errors as well as detected ones, and
+only the detected ones appear in that table. And five candidates is a small sample;
+the difference between 9 and 13 facts is a handful of fields.
+
+**Conclusion: keep the prompt, and tune it.** It is doing the thing it was written
+for, but it is over-warning and suppressing legitimate extraction along with the
+guesses. The next revision should keep the anti-invention framing and drop the
+repetition that makes the model treat "unknown" as the safe default answer. That is
+a measurable change, so it will be measured.
+
+Recorded here rather than quietly re-run until it looked better.
+
 ## What is still unmeasured
 
 Stated plainly rather than implied:

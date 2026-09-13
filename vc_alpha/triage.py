@@ -18,6 +18,7 @@ import logging
 import sqlite3
 
 from vc_alpha.llm import NoCapacityLeft, Router, Sending
+from vc_alpha.prompts import for_task
 from vc_alpha.signals import SIGNALS, combine, schema
 from vc_alpha.theses import Thesis
 
@@ -78,7 +79,8 @@ def triage_one(
     fund that objects points the router at a local endpoint, which is one config
     value and no code change.
     """
-    return router.complete(build_prompt(text, thesis), schema=SCHEMA, sending=sending)
+    return router.complete(build_prompt(text, thesis), schema=SCHEMA,
+                           sending=sending, system=for_task("triage"))
 
 
 def run(
