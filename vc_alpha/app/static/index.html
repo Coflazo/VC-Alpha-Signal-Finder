@@ -9,122 +9,147 @@
 </head>
 <body>
 
-<header>
-  <h1>VC Alpha Signal Finder</h1>
-  <span class="sub" id="headline">loading…</span>
-</header>
+<!-- A sidebar rather than top tabs. Twelve destinations do not fit in a tab bar,
+     and a ~240px rail is what Stripe, Linear and Vercel converged on for the same
+     reason. -->
+<aside id="rail">
+  <div class="brand">
+    <strong>VC Alpha</strong>
+    <span id="brand-sub">loading…</span>
+  </div>
 
-<nav role="tablist">
-  <button role="tab" data-tab="dashboard" aria-selected="true">Dashboard</button>
-  <button role="tab" data-tab="entities" aria-selected="false">Dossiers</button>
-  <button role="tab" data-tab="review" aria-selected="false">Review</button>
-  <button role="tab" data-tab="reports" aria-selected="false">Reports</button>
-  <button role="tab" data-tab="sheet" aria-selected="false">Sheet</button>
-  <button role="tab" data-tab="setup" aria-selected="false">Setup</button>
-</nav>
+  <nav aria-label="Main">
+    <p class="rail-label">Overview</p>
+    <button data-tab="dashboard" aria-current="page">Dashboard</button>
+    <button data-tab="review">Review queue <span class="count" id="c-review"></span></button>
+    <button data-tab="entities">Founders</button>
+    <button data-tab="reports">Reports</button>
+
+    <p class="rail-label">Where signal comes from</p>
+    <div id="source-nav"></div>
+
+    <p class="rail-label">Settings</p>
+    <button data-tab="sheet">Google Sheet</button>
+    <button data-tab="setup">Setup</button>
+  </nav>
+</aside>
 
 <main>
 
   <section id="dashboard">
-    <h2>Corpus</h2>
-    <div class="grid" id="metrics"></div>
+    <header class="page">
+      <h1>Dashboard</h1>
+      <p class="lede">Everything found so far, and what the system is doing.</p>
+    </header>
 
-    <h2>Sources</h2>
-    <div class="table-wrap" style="margin-bottom:24px">
-      <table>
-        <thead><tr>
-          <th>Source</th><th class="num">Candidates</th><th class="num">Scored</th>
-          <th class="num">Triaged</th><th>Runs where</th>
-        </tr></thead>
-        <tbody id="sources"></tbody>
-      </table>
-    </div>
+    <div class="grid metrics" id="metrics"></div>
 
-    <h2>Acceptance bar</h2>
-    <p class="note">
-      The optimal threshold for a fund with this much capital and this much time
-      left, by sequential assignment. It falls as the window closes and rises with
-      deal flow — better sourcing should make you <em>more</em> selective, not less.
-    </p>
-    <div class="controls">
-      <label class="sub">Slots left
-        <input type="number" id="dep-slots" value="14" min="1" max="200" style="width:70px"></label>
-      <label class="sub">Months left
-        <input type="number" id="dep-months" value="22" min="1" max="120" style="width:70px"></label>
-      <label class="sub">Deals/month
-        <input type="number" id="dep-rate" value="8" min="1" max="500" style="width:70px"></label>
-      <button class="act" id="dep-go">Compute</button>
-    </div>
-    <div class="grid" id="dep-out" style="margin-bottom:24px"></div>
+    <section class="panel">
+      <h2>How selective should you be right now</h2>
+      <p class="note">
+        With a fixed number of investments and a fixed amount of time, the right bar
+        falls as the window closes. More deal flow raises it, because each remaining
+        slot becomes more valuable to hold.
+      </p>
+      <div class="controls">
+        <label>Investments left
+          <input type="number" id="dep-slots" value="14" min="1" max="200"></label>
+        <label>Months left
+          <input type="number" id="dep-months" value="22" min="1" max="120"></label>
+        <label>Deals seen per month
+          <input type="number" id="dep-rate" value="8" min="1" max="500"></label>
+        <button class="act" id="dep-go">Recalculate</button>
+      </div>
+      <div class="grid metrics" id="dep-out"></div>
+    </section>
 
-    <h2>Run something</h2>
-    <div class="controls">
-      <select id="job-kind" aria-label="Job type">
-        <option value="collect">Collect</option>
-        <option value="score">Score (stage 2)</option>
-        <option value="pipeline">Pipeline (stages 3–5)</option>
-        <option value="entities">Rebuild dossiers</option>
-      </select>
-      <select id="job-source" aria-label="Source">
-        <option value="hackernews">Hacker News</option>
-        <option value="substack">Substack</option>
-        <option value="github">GitHub</option>
-        <option value="whatsapp">WhatsApp</option>
-        <option value="inbound">Inbound (your own)</option>
-        <option value="reddit">Reddit</option>
-        <option value="linkedin">LinkedIn</option>
-      </select>
-      <input type="number" id="job-n" value="10" min="1" max="200" aria-label="How many">
-      <button class="act primary" id="job-start">Start</button>
-      <span class="sub" id="job-status"></span>
-    </div>
-    <div class="log" id="job-log">No job has run yet this session.</div>
+    <section class="panel">
+      <h2>Run something</h2>
+      <div class="controls">
+        <select id="job-kind" aria-label="What to run">
+          <option value="collect">Look for new candidates</option>
+          <option value="score">Score what was found</option>
+          <option value="pipeline">Full review pass</option>
+          <option value="entities">Rebuild founder profiles</option>
+        </select>
+        <select id="job-source" aria-label="Where"></select>
+        <input type="number" id="job-n" value="10" min="1" max="200" aria-label="How much">
+        <button class="act primary" id="job-start">Start</button>
+        <span class="sub" id="job-status"></span>
+      </div>
+      <div class="log" id="job-log">Nothing has run yet.</div>
+    </section>
   </section>
 
-  <section id="entities" hidden>
-    <h2>Founders and companies</h2>
-    <p class="note">
-      One row per person or company, assembled from every mention across every
-      source. Team is the strongest early-stage predictor, so this is the unit
-      worth ranking — a post is only evidence about one.
-    </p>
-    <div class="controls">
-      <button class="act primary" id="entities-build">Rebuild from candidates</button>
-      <button class="act" id="entities-refresh">Refresh</button>
-      <span class="sub" id="entities-status"></span>
-    </div>
-    <div class="table-wrap" style="margin-bottom:24px">
-      <table>
-        <thead><tr>
-          <th class="num">Score</th><th>Name</th><th>Kind</th>
-          <th class="num">Mentions</th><th>Seen in</th><th></th>
-        </tr></thead>
-        <tbody id="entities-body"></tbody>
-      </table>
-    </div>
-    <div id="dossier"></div>
+  <section id="source" hidden>
+    <header class="page">
+      <h1 id="src-title"></h1>
+      <p class="lede" id="src-what"></p>
+    </header>
+    <div id="src-status"></div>
+    <div class="grid metrics" id="src-metrics"></div>
+
+    <section class="panel">
+      <h2>Best of what it found</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th class="num">Score</th><th>What</th><th>Who</th></tr></thead>
+        <tbody id="src-recent"></tbody>
+      </table></div>
+    </section>
+
+    <section class="panel">
+      <h2 id="src-watching-title">What it is watching</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Name</th><th class="num">Seen</th><th class="num">Good</th><th>Added</th></tr></thead>
+        <tbody id="src-watching"></tbody>
+      </table></div>
+    </section>
   </section>
 
   <section id="review" hidden>
-    <h2>Review queue</h2>
-    <p class="note">
-      Marking candidates here is what turns the stage&nbsp;2 threshold from a guess into
-      a measured number. It is the highest-value thing in the app.
-    </p>
+    <header class="page">
+      <h1>Review queue</h1>
+      <p class="lede">
+        Marking these is the most valuable thing you can do here. It is the only way
+        the system learns where your bar actually sits.
+      </p>
+    </header>
     <div class="controls">
-      <select id="review-thesis" aria-label="Filter by thesis"><option value="">All theses</option></select>
+      <select id="review-thesis" aria-label="Fund"><option value="">All funds</option></select>
       <button class="act" id="review-refresh">Refresh</button>
       <span class="sub" id="review-count"></span>
     </div>
     <div id="candidates"></div>
   </section>
 
-  <section id="reports" hidden>
-    <h2>Reports</h2>
+  <section id="entities" hidden>
+    <header class="page">
+      <h1>Founders and companies</h1>
+      <p class="lede">
+        Each row gathers everything found about one person or company, from every
+        source. Seeing the same name in two places independently is a stronger
+        signal than one post scoring well.
+      </p>
+    </header>
     <div class="controls">
-      <select id="report-thesis" aria-label="Fund"></select>
+      <button class="act primary" id="entities-build">Rebuild from what was found</button>
+      <button class="act" id="entities-refresh">Refresh</button>
+      <span class="sub" id="entities-status"></span>
     </div>
-    <p class="note" id="report-note"></p>
+    <div class="table-wrap"><table>
+      <thead><tr><th class="num">Score</th><th>Name</th><th>Kind</th>
+      <th class="num">Mentions</th><th>Seen in</th><th></th></tr></thead>
+      <tbody id="entities-body"></tbody>
+    </table></div>
+    <div id="dossier"></div>
+  </section>
+
+  <section id="reports" hidden>
+    <header class="page">
+      <h1>Reports</h1>
+      <p class="lede" id="report-note">One row per candidate, in your fund's own format.</p>
+    </header>
+    <div class="controls"><select id="report-thesis" aria-label="Fund"></select></div>
     <div class="table-wrap"><table>
       <thead><tr id="report-head"></tr></thead>
       <tbody id="report-body"></tbody>
@@ -132,12 +157,13 @@
   </section>
 
   <section id="sheet" hidden>
-    <h2>Google Sheet</h2>
-    <p class="note" id="sheet-note"></p>
+    <header class="page">
+      <h1>Google Sheet</h1>
+      <p class="lede" id="sheet-note"></p>
+    </header>
     <div class="controls">
-      <button class="act" id="sheet-refresh">Reload from Google</button>
-      <a class="act" id="sheet-open" target="_blank" rel="noopener"
-         style="display:none;text-decoration:none;padding:6px 12px">Open in Google Sheets ↗</a>
+      <button class="act" id="sheet-refresh">Reload</button>
+      <a class="act" id="sheet-open" target="_blank" rel="noopener" style="display:none">Open in Google Sheets</a>
     </div>
     <div class="table-wrap"><table>
       <thead><tr id="sheet-head"></tr></thead>
@@ -146,33 +172,45 @@
   </section>
 
   <section id="setup" hidden>
-    <h2>Add your fund's thesis</h2>
-    <p class="note">
-      Write it the way you would describe your fund to a founder. It gets embedded
-      and matched against everything collected, so plain prose works better than a
-      list of tags. The generated file is commented and meant to be edited.
-    </p>
-    <div class="card" style="margin-bottom:24px">
-      <div style="display:grid;gap:8px;max-width:640px">
-        <input id="th-name" placeholder="Fund name" aria-label="Fund name"
-               style="font:inherit;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--fg)">
-        <textarea id="th-prose" rows="4" aria-label="Thesis"
-          placeholder="We back technical founders at pre-seed building developer infrastructure in Europe, often before the category is obvious…"
-          style="font:inherit;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--fg)"></textarea>
-        <div class="controls" style="margin:0">
-          <button class="act primary" id="th-create">Create thesis</button>
+    <header class="page">
+      <h1>Setup</h1>
+      <p class="lede">
+        Everything here is free and none of it needs a card. The product already
+        works without any of it.
+      </p>
+    </header>
+
+    <section class="panel">
+      <h2>This computer</h2>
+      <p class="note" id="hw-summary">Checking…</p>
+      <div class="controls">
+        <button class="act primary" id="hw-auto">Set up local AI automatically</button>
+        <span class="sub" id="hw-status"></span>
+      </div>
+      <div class="log" id="hw-log" hidden></div>
+    </section>
+
+    <section class="panel">
+      <h2>Add your fund</h2>
+      <p class="note">
+        Describe the companies you back, the way you would to a founder. Plain
+        sentences work better than a list of keywords.
+      </p>
+      <div class="stack">
+        <input id="th-name" placeholder="Fund name" aria-label="Fund name">
+        <textarea id="th-prose" rows="4" aria-label="What you back"
+          placeholder="We back technical founders at pre-seed building developer infrastructure in Europe, often before the category has a name…"></textarea>
+        <div class="controls">
+          <button class="act primary" id="th-create">Create</button>
           <span class="sub" id="th-status"></span>
         </div>
       </div>
-    </div>
+    </section>
 
-    <h2>What is still needed</h2>
-    <p class="note">
-      Everything below is optional and free, and none of it needs a payment card.
-      With none of it configured the app still collects from Hacker News, Substack
-      and GitHub, and scores locally.
-    </p>
-    <div class="card" id="setup-list"></div>
+    <section class="panel">
+      <h2>Optional connections</h2>
+      <div id="setup-list"></div>
+    </section>
   </section>
 
 </main>

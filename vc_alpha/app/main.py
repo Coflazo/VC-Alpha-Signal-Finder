@@ -292,6 +292,163 @@ def health() -> dict:
     }
 
 
+# What each source is, why it matters, and what it needs — in the words a partner
+# would use. Shown on that source's own tab.
+SOURCE_INFO = {
+    "hackernews": {
+        "label": "Hacker News",
+        "what": "Founders announcing their own work, usually before any press.",
+        "needs": None,
+        "action": "Search recent launches",
+    },
+    "substack": {
+        "label": "Substack",
+        "what": "Newsletters that write about new companies, and the writers they recommend.",
+        "needs": None,
+        "action": "Read watched newsletters",
+    },
+    "github": {
+        "label": "GitHub",
+        "what": "New projects gaining attention fast, often before a company exists.",
+        "needs": None,
+        "action": "Scan trending projects",
+    },
+    "reddit": {
+        "label": "Reddit",
+        "what": "Founders asking for help and sharing what they are building.",
+        "needs": "REDDIT_CLIENT_ID",
+        "setup": "Create a free app at reddit.com/prefs/apps and pick 'script'. Takes two minutes.",
+        "action": "Read watched subreddits",
+    },
+    "linkedin": {
+        "label": "LinkedIn",
+        "what": "Profiles and posts from people who have just started something.",
+        "needs": "LINKEDIN_SESSION_COOKIE",
+        "setup": "Sign in on LinkedIn in a browser and copy the li_at cookie. Use a spare account.",
+        "action": "Check saved profiles",
+    },
+    "whatsapp": {
+        "label": "WhatsApp",
+        "what": "Your own group chats. Nothing here ever leaves this computer.",
+        "needs": None,
+        "setup": "Export a chat from WhatsApp and drop the file into data/whatsapp.",
+        "action": "Read imported chats",
+    },
+    "inbound": {
+        "label": "Inbound",
+        "what": "Pitches sent straight to you. Already the most qualified thing you have.",
+        "needs": None,
+        "setup": "Save emails as .eml files, or drop a CSV export, into data/inbound.",
+        "action": "Read new pitches",
+    },
+}
+
+
+@app.get("/api/sources")
+def sources() -> dict:
+    """Everything needed to draw one tab per source."""
+    conn = db()
+    counts = {
+        r["source"]: dict(r) for r in conn.execute(
+            """SELECT source, COUNT(*) n,
+                      SUM(similarity IS NOT NULL) scored,
+                      SUM(triage_json IS NOT NULL) triaged,
+                      MAX(discovered_at) last_seen
+               FROM candidates GROUP BY source""")
+    }
+    nodes = {
+        r["source"]: r["n"] for r in conn.execute(
+            "SELECT source, COUNT(*) n FROM nodes WHERE active = 1 GROUP BY source")
+    }
+
+    out = []
+    for key, info in SOURCE_INFO.items():
+        c = counts.get(key, {})
+        needs = info.get("needs")
+        out.append({
+            "key": key,
+            "label": info["label"],
+            "what": info["what"],
+            "action": info["action"],
+            "setup": info.get("setup"),
+            "ready": not needs or bool(os.environ.get(needs)),
+            "needs_env": needs,
+            "local_only": key in LOCAL_ONLY,
+            "local_reason": LOCAL_ONLY.get(key, ""),
+            "candidates": c.get("n", 0),
+            "scored": c.get("scored") or 0,
+            "triaged": c.get("triaged") or 0,
+            "last_seen": c.get("last_seen"),
+            "watching": nodes.get(key, 0),
+        })
+    return {"sources": out}
+
+
+@app.get("/api/sources/{key}")
+def source_detail(key: str, limit: int = 25) -> dict:
+    """One source: what it found, and what it is watching."""
+    if key not in SOURCE_INFO:
+        raise HTTPException(404, "no such source")
+    conn = db()
+    recent = [
+        {"title": r["title"], "url": r["source_url"], "author": r["author"],
+         "score": r["score"], "similarity": r["similarity"],
+         "posted_at": r["posted_at"]}
+        for r in conn.execute(
+            """SELECT title, source_url, author, score, similarity, posted_at
+               FROM candidates WHERE source = ?
+               ORDER BY COALESCE(score, similarity) DESC NULLS LAST LIMIT ?""",
+            (key, limit))
+    ]
+    watching = [
+        {"node": r["node"], "name": r["display_name"], "seen": r["seen_count"],
+         "hits": r["hit_count"], "kind": r["source_kind"]}
+        for r in conn.execute(
+            """SELECT node, display_name, seen_count, hit_count, source_kind
+               FROM nodes WHERE source = ? AND active = 1
+               ORDER BY hit_count DESC, seen_count DESC LIMIT 25""", (key,))
+    ]
+    return {"key": key, "recent": recent, "watching": watching,
+            **SOURCE_INFO[key]}
+
+
+@app.get("/api/hardware")
+def hardware() -> dict:
+    """What this machine is and what it could run, in plain language."""
+    from vc_alpha.hardware import profile
+    from vc_alpha.installer import installed_models, ollama_running
+    from vc_alpha.modelpick import recommend
+
+    m = profile()
+    rec = recommend(m)
+    return {
+        "summary": m.summary(),
+        "total_ram_gb": round(m.total_ram_gb, 1),
+        "usable_gb": round(m.usable_ram_gb(), 2),
+        "notes": m.notes,
+        "ollama_running": ollama_running(),
+        "installed": installed_models(),
+        "recommendation": {
+            "model": rec.model.name if rec.ok else None,
+            "reason": rec.reason,
+            "rejected": [{"model": n, "why": w} for n, w in rec.rejected],
+        },
+    }
+
+
+@app.post("/api/setup/auto")
+def setup_auto(allow_download: bool = True) -> dict:
+    """One action: inspect, measure, choose, install, verify.
+
+    Returns every step with its plain-language explanation, so a user can see what
+    was decided and why rather than being handed a result to trust.
+    """
+    from vc_alpha.installer import auto_setup
+    steps = [{"name": s.name, "ok": s.ok, "detail": s.detail, "data": s.data}
+             for s in auto_setup(allow_download=allow_download)]
+    return {"steps": steps, "ok": all(s["ok"] for s in steps)}
+
+
 @app.get("/api/deployment")
 def deployment(slots: int = 14, months: int = 22,
                deals_per_month: float = 8.0) -> dict:
