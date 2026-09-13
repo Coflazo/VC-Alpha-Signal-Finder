@@ -569,6 +569,9 @@ JOB_COMMANDS = {
     "pipeline": lambda src, n: ["vc_alpha.pipeline", "--limit", str(n)],
 }
 
+# Jobs that operate on everything already collected and take no source.
+NEEDS_SOURCE = {"collect"}
+
 
 class JobRequest(BaseModel):
     kind: str
@@ -580,6 +583,17 @@ class JobRequest(BaseModel):
 def start_job(req: JobRequest) -> dict:
     if req.kind not in JOB_COMMANDS:
         raise HTTPException(400, f"unknown job: {req.kind}")
+
+    # Validate here rather than letting an empty value reach argparse, which
+    # answers with a usage dump. A person who is not technical should never be
+    # shown "usage: collect.py [-h] [--source {github,...}]".
+    if req.kind in NEEDS_SOURCE:
+        if not req.source:
+            raise HTTPException(400, "Choose where to look before starting.")
+        if req.source not in SOURCE_INFO:
+            raise HTTPException(
+                400, f"{req.source} is not a source this product knows about.")
+
     argv = JOB_COMMANDS[req.kind](req.source, req.n)
     try:
         job = runner.start(f"{req.kind} {req.source}".strip(), argv)

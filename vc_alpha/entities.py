@@ -60,7 +60,10 @@ CREATE TABLE IF NOT EXISTS entity_evidence (
 );
 
 CREATE INDEX IF NOT EXISTS idx_entity_score ON entities(score DESC);
-CREATE INDEX IF NOT EXISTS idx_entity_norm ON entities(kind, norm_name);
+-- The index on norm_name is created in install(), after the migration that adds
+-- the column. Putting it here fails on any database created before norm_name
+-- existed, because executescript runs before the migration does — which is
+-- precisely the only situation a migration can go wrong in.
 CREATE INDEX IF NOT EXISTS idx_evidence_entity ON entity_evidence(entity_id);
 """
 

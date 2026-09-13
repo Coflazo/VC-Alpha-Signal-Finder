@@ -24,7 +24,9 @@ const emptyRow = (cols, heading, hint) =>
   ])]);
 
 let SOURCES = [];
+let FUNDS = [];
 const LOADERS = {};
+const fundName = (id) => (FUNDS.find((f) => f.id === id) || {}).name || id;
 
 // --- navigation --------------------------------------------------------------
 
@@ -118,7 +120,8 @@ $("#dep-go").onclick = loadDeployment;
 
 function renderJob(job) {
   if (!job) return;
-  $("#job-log").textContent = job.lines.join("\n") || "starting…";
+  const lines = job.lines.filter((l) => !/^usage: |^\s*\[-h\]|^collect\.py: error/.test(l));
+  $("#job-log").textContent = lines.join("\n") || "starting…";
   $("#job-log").scrollTop = $("#job-log").scrollHeight;
   $("#job-status").textContent = job.running
     ? `Running for ${job.elapsed}s`
@@ -126,6 +129,18 @@ function renderJob(job) {
   $("#job-start").disabled = job.running;
   if (job.running) setTimeout(async () => renderJob(await api("/api/jobs/current")), 1500);
 }
+
+// score, pipeline and entities work on everything already collected. Showing a
+// "where" picker for them implies a choice that does not exist, and sending an
+// empty one produced an argparse usage dump.
+const JOB_NEEDS_SOURCE = new Set(["collect"]);
+
+function syncJobForm() {
+  const needs = JOB_NEEDS_SOURCE.has($("#job-kind").value);
+  $("#job-source").style.display = needs ? "" : "none";
+  $("#job-n").style.display = $("#job-kind").value === "score" ? "none" : "";
+}
+$("#job-kind").onchange = syncJobForm;
 
 $("#job-start").onclick = async () => {
   $("#job-start").disabled = true;
@@ -142,6 +157,7 @@ $("#job-start").onclick = async () => {
     $("#job-start").disabled = false;
   }
 };
+syncJobForm();
 
 // --- one tab per source ------------------------------------------------------
 
@@ -215,6 +231,7 @@ LOADERS.review = async () => {
   const sel = $("#review-thesis");
   if (sel.options.length <= 1) {
     const { theses } = await api("/api/theses");
+    FUNDS = theses;
     theses.forEach((t) => sel.append(el("option", { value: t.id, textContent: t.name })));
   }
   loadCandidates();
@@ -225,7 +242,10 @@ async function loadCandidates() {
   if ($("#review-thesis").value) q.set("thesis", $("#review-thesis").value);
   const { candidates } = await api(`/api/candidates?${q}`);
 
-  $("#review-count").textContent = plural(candidates.length, "waiting", "waiting");
+  const chosen = $("#review-thesis").value;
+  $("#review-count").textContent = chosen
+    ? `${candidates.length} waiting for ${fundName(chosen)}`
+    : `${candidates.length} waiting across all funds`;
   if (!candidates.length) {
     $("#candidates").replaceChildren(el("div", { className: "empty" }, [
       el("strong", { textContent: "Nothing to review" }),
@@ -241,7 +261,12 @@ async function loadCandidates() {
       el("div", { className: "meta" }, [
         el("span", { className: "pill", textContent: c.source }),
         el("span", { className: "num", textContent: num(c.score ?? c.similarity) }),
-        c.stage ? el("span", { className: "pill", textContent: c.stage }) : null,
+        // Which fund this matched. Without it, filtering by a fund that already
+        // dominates the list looks like the filter did nothing.
+        c.thesis ? el("span", { className: "pill",
+                                textContent: fundName(c.thesis) }) : null,
+        c.stage && c.stage !== "unknown"
+          ? el("span", { className: "pill", textContent: c.stage }) : null,
         c.author ? el("span", { textContent: `by ${c.author}` }) : null,
       ]),
       el("p", { textContent: (c.text || "").slice(0, 320) }),
@@ -254,8 +279,10 @@ async function loadCandidates() {
         body: JSON.stringify({ good }),
       });
       card.remove();
-      $("#review-count").textContent =
-        plural(document.querySelectorAll("#candidates .cand").length, "waiting", "waiting");
+      const left = document.querySelectorAll("#candidates .cand").length;
+      const f = $("#review-thesis").value;
+      $("#review-count").textContent = f
+        ? `${left} waiting for ${fundName(f)}` : `${left} waiting across all funds`;
     };
 
     card.append(el("div", { className: "actions" }, [
