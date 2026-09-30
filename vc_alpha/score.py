@@ -13,6 +13,7 @@ the numbers that happen to be here.
 
 from __future__ import annotations
 
+import json
 import math
 import sqlite3
 from datetime import datetime, timezone
@@ -72,21 +73,34 @@ def combine(similarity: float | None, thesis_match: float | None,
     )
 
 
+def thesis_match(triage_json: str | None, confidence: float | None) -> float | None:
+    """The stage-3 judgement the ranking uses.
+
+    Verdicts used to carry a single `thesis_match` float. The six-signal schema
+    replaced it, and the combined value went into the `confidence` column, but
+    this read kept looking for the old key. Every current verdict contributed
+    nothing, and the ranking was similarity and recency alone. Old verdicts still
+    carry the key, so it wins when present.
+    """
+    if not triage_json:
+        return None
+    try:
+        match = json.loads(triage_json).get("thesis_match")
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return match if match is not None else confidence
+
+
 def rescore(conn: sqlite3.Connection) -> int:
     """Recompute scores for everything triaged. Cheap, so just redo all of it."""
-    import json
-
     rows = conn.execute(
-        "SELECT id, similarity, triage_json, posted_at FROM candidates "
+        "SELECT id, similarity, triage_json, posted_at, confidence FROM candidates "
         "WHERE triage_json IS NOT NULL"
     ).fetchall()
 
     w = weights()
     for r in rows:
-        try:
-            match = json.loads(r["triage_json"]).get("thesis_match")
-        except (ValueError, TypeError):
-            match = None
+        match = thesis_match(r["triage_json"], r["confidence"])
         conn.execute(
             "UPDATE candidates SET score = ? WHERE id = ?",
             (combine(r["similarity"], match, r["posted_at"], w=w), r["id"]),

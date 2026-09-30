@@ -13,7 +13,8 @@ import pytest
 from vc_alpha import theses
 from vc_alpha.db import SCHEMA
 from vc_alpha.output.report import research_prompt, to_markdown, write_csv
-from vc_alpha.score import HALF_LIFE_DAYS, combine, ranked, recency_decay, rescore
+from vc_alpha.score import (
+    HALF_LIFE_DAYS, combine, ranked, recency_decay, rescore, weights)
 
 NOW = datetime(2026, 9, 12, tzinfo=timezone.utc)
 
@@ -142,3 +143,25 @@ def test_csv_uses_the_funds_own_columns_and_appends(conn, treeo, tmp_path: Path)
     assert "Geographic focus" in rows[0]
     assert len(rows) == 3, "append-only broken: a partner's edits would be lost"
     assert rows[1][3] == "Acme"
+
+
+def test_the_six_signal_verdict_counts_toward_the_score(conn):
+    """Verdicts stopped carrying `thesis_match` when six signals replaced it, and
+    rescoring kept reading that key. Every current verdict contributed nothing, so
+    the ranking was similarity and recency alone. The combined signal is stored in
+    `confidence`, and that is what the score now reads when the old key is absent.
+    """
+    verdict = json.dumps({"is_building": {"score": 1.0, "quote": ""}})
+    for cid, conf in (("fits", 0.9), ("does_not", 0.0)):
+        conn.execute(
+            """INSERT INTO candidates
+               (id, source, source_url, raw_text, discovered_at, retention_until,
+                similarity, thesis_id, triage_json, is_startup, posted_at, confidence)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (cid, "hackernews", f"https://x/{cid}", "text", NOW.isoformat(),
+             NOW.isoformat(), 0.5, "treeo", verdict, 1, ago(1), conf),
+        )
+    rescore(conn)
+    got = dict(conn.execute("SELECT id, score FROM candidates").fetchall())
+    assert got["fits"] - got["does_not"] == pytest.approx(
+        weights()["thesis_match"] * 0.9)

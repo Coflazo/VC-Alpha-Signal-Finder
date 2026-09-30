@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import logging
 import random
 import sqlite3
@@ -153,7 +152,8 @@ def labels_from_db(conn: sqlite3.Connection) -> list[dict]:
     This is the whole point. The clicks were already happening; nothing read them.
     """
     return [dict(r) for r in conn.execute(
-        """SELECT id, similarity, triage_json, posted_at, was_good, embedding_model
+        """SELECT id, similarity, triage_json, posted_at, was_good, embedding_model,
+                  confidence
            FROM candidates
            WHERE reviewed = 1 AND was_good IS NOT NULL AND similarity IS NOT NULL"""
     )]
@@ -169,12 +169,9 @@ def labels_from_csv(path: Path) -> list[dict]:
 
 
 def _thesis_match(row: dict) -> float | None:
-    if not row.get("triage_json"):
-        return None
-    try:
-        return json.loads(row["triage_json"]).get("thesis_match")
-    except (ValueError, TypeError):
-        return None
+    from vc_alpha.score import thesis_match
+
+    return thesis_match(row.get("triage_json"), row.get("confidence"))
 
 
 # --- fitting -----------------------------------------------------------------

@@ -258,3 +258,12 @@ def test_caveats_survive_a_save_and_reload(conn):
         _label(conn, f"c{i}", 0.75 + i / 500, good=i > 3, match=0.8)
     calibrate.fit(conn)
     assert calibrate.load().caveats
+
+
+def test_fitting_reads_the_six_signal_verdict():
+    """The same stale key as rescoring: a current verdict has no `thesis_match`,
+    so the fit saw every triaged candidate as unjudged."""
+    row = {"triage_json": json.dumps({"is_building": {"score": 1, "quote": ""}}),
+           "confidence": 0.7}
+    assert calibrate._thesis_match(row) == 0.7
+    assert calibrate._thesis_match({"triage_json": None, "confidence": 0.7}) is None
