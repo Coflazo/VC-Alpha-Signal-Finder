@@ -5,7 +5,7 @@ An evaluation engine for early-stage venture, that costs nothing to run.
 Give it a thesis written in plain English. It reads Hacker News, Substack, GitHub, Reddit, LinkedIn, WhatsApp exports and your own inbound, assembles what it finds into founder and company dossiers, scores each against your thesis with the evidence attached, and writes ranked results into a Google Sheet in the format your fund actually asked for.
 
 **Status:** working end to end, and installable by someone who is not the author.
-Seven sources, 846 candidates, 375 tests passing. Every credential is free and
+Seven sources plus a browser extension, 846 candidates, 405 tests passing. Every credential is free and
 entered in the app rather than exported in a shell. Zero cost so far.
 
 ### Why an evaluation engine and not another sourcing tool
@@ -599,16 +599,18 @@ vc_alpha/
 ├── calibrate.py           review labels → threshold and score weights
 ├── redact.py              fragment extraction for private sources
 ├── triage.py  score.py  pipeline.py  onboard.py
+├── capture.py             one page sent from the browser extension
 ├── collectors/            substack, hackernews, github, whatsapp, inbound,
 │                          reddit, linkedin — one protocol, seven sources
 ├── enrich/embed.py        embedding ladder, multi-vector matching, rank gating
 └── app/                   FastAPI + one page: dashboard, dossiers, review,
                            reports, sheet, setup
 
+extension/                 Chrome extension: capture a page, see the verdict
 examples/theses/*.yaml     five real funds, as worked examples to copy
 ~/.vc-alpha/               your own data, config and keys, when installed
 SETUP.md                   exactly what you need to supply, all of it free
-docs/                      PLAN, COLLECTORS, TOOLCHAIN, VALIDATION, MCP
+docs/                      PLAN, COLLECTORS, TOOLCHAIN, VALIDATION, MCP, EXTENSION
 ```
 
 ## The quantitative models
@@ -733,3 +735,17 @@ pipeline only ever appends, so your notes are never overwritten.
 tests it, your fund's thesis from a paragraph of plain English, what this computer
 can run locally, and the privacy controls: what the retention period is, what is
 about to expire, and a way to erase one person on request.
+
+### The browser extension
+
+For the page you are looking at right now. One click in Chrome sends it to the
+engine, which stores it as a candidate, screens it against your fund's thesis and
+returns the six signals with their quotes. The side panel shows that next to the
+extension's own local score. A page marked private, such as an email, is handled
+like a WhatsApp message: embedded locally, triaged on a redacted fragment.
+
+```bash
+cd extension && npm install && npm run build   # then Load unpacked: extension/dist
+```
+
+How it works, and what it deliberately skips: [docs/EXTENSION.md](docs/EXTENSION.md).

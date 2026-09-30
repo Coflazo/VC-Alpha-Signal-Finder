@@ -2,7 +2,9 @@
 
 Treeo VC Scout is a local-first Chrome Manifest V3 extension for evidence-linked founder intelligence. It helps a VC analyst turn a professional profile, pasted text, or public startup proof into a founder score, startup stage estimate, market pain read, Hacker News signal layer, GitHub build proof, YC fit, investor-fit notes, relationship graph, exports, and memo.
 
-It is not a stealth scraper. For LinkedIn-like pages, use manual paste, selected text, visible-page capture after a click, CSV/JSON import, or future approved API adapters. The extension does not bypass access controls, automate browsing, auto-scroll, crawl profiles, copy cookies, or run account actions.
+It is part of [VC Alpha Signal Finder](../README.md). With the engine running (`uv run vc-alpha` from the repo root), each capture is also screened against your fund's thesis and kept with everything else the engine has collected. See [docs/EXTENSION.md](../docs/EXTENSION.md).
+
+The extension is not a stealth scraper. For LinkedIn-like pages, use manual paste, selected text, visible-page capture after a click, CSV/JSON import, or future approved API adapters. The extension does not bypass access controls, automate browsing, auto-scroll, crawl profiles, copy cookies, or run account actions. The engine's LinkedIn collector is a separate, opt-in tool with its own limits; see [docs/COLLECTORS.md](../docs/COLLECTORS.md).
 
 ## What It Does
 
@@ -17,6 +19,7 @@ It is not a stealth scraper. For LinkedIn-like pages, use manual paste, selected
 ## Install
 
 ```bash
+cd extension
 npm install
 npm run build
 ```
@@ -26,7 +29,7 @@ Load the extension in Chrome:
 1. Open `chrome://extensions`.
 2. Enable Developer Mode.
 3. Click **Load unpacked**.
-4. Select the generated `dist/` directory.
+4. Select the generated `extension/dist/` directory.
 
 For development rebuilds:
 
@@ -99,6 +102,7 @@ Open the dashboard **Exports** tab.
 ## Project Structure
 
 - `src/background/service-worker.ts`: capture orchestration, research queue, AI pipeline, graph build, and storage.
+- `src/engine/engineClient.ts`: posts a capture to the local VC Alpha engine and returns its verdict; never throws.
 - `src/adapters/`: manual paste, CSV import, approved API stub, generic profile normalization, LinkedIn-safe visible capture adapter.
 - `src/ai/`: provider router, mock/Groq/Gemini/OpenRouter/local providers, schemas, prompts, and multi-pass pipeline.
 - `src/research/`: Hacker News, GitHub, Product Hunt placeholder, YC, source reliability, and query generation.
@@ -122,6 +126,7 @@ npm run build
 - Local-first storage in IndexedDB.
 - User-triggered capture only.
 - No hidden network transmission for LLM calls.
+- Captures go to the local engine at `127.0.0.1:8420` while **Send captures to the engine** is on (the default). Pages marked private are embedded locally and triaged on a redacted fragment.
 - Public research is explicit and disabled by default.
 - External LLM calls require provider enablement and disclosure acceptance.
 - Delete-all-local-data control in settings.
