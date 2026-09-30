@@ -84,3 +84,22 @@ def test_an_unknown_source_is_refused_readably():
     result = call("collect", {"source": "myspace", "how_many": 1})
     payload = str(result[1] if isinstance(result, tuple) else result)
     assert "source_status" in payload
+
+
+def test_a_private_title_does_not_cross_the_boundary_either():
+    """A WhatsApp title is the chat name and the first 60 characters of the
+    message, and an inbound or private-capture title is an email subject. Hiding
+    the text while returning the title handed the message over anyway."""
+    from vc_alpha.db import connect
+
+    conn = connect()
+    conn.execute(
+        """INSERT INTO candidates (id, source, source_url, raw_text, title,
+           discovered_at, retention_until, score, is_startup, thesis_id)
+           VALUES ('wa', 'whatsapp', 'whatsapp://x', 'the message',
+                   'Founders TR: Ayse is raising after her divorce', '2026-09-01',
+                   '2099-01-01', 0.9, 1, 'treeo')""")
+    conn.commit()
+
+    out = str(call("search_candidates"))
+    assert "divorce" not in out and "Founders TR" not in out

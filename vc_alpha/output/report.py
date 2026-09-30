@@ -17,6 +17,7 @@ from pathlib import Path
 
 from vc_alpha.llm import Router, Sending
 from vc_alpha.prompts import for_task
+from vc_alpha.redact import PRIVATE_SOURCES, extract
 from vc_alpha.schema import strict_object
 from vc_alpha.theses import Thesis
 
@@ -117,12 +118,25 @@ def research(
     router: Router, row: sqlite3.Row, thesis: Thesis,
     sending: Sending = Sending.PUBLIC,
 ) -> dict:
+    """Research one shortlisted candidate.
+
+    A private row is researched on a redacted fragment, whatever `sending` the
+    caller passed. scripts/run_stage4.py passed PUBLIC for every row, and the
+    pipeline passed REDACTED with the raw text still in the prompt, so either way
+    a private message reached a cloud model whole. The row knows its own source,
+    so the decision is made here, where no caller can get it wrong.
+    """
+    text = row["raw_text"] or ""
+    if row["source"] in PRIVATE_SOURCES:
+        text, sending = extract(text), Sending.REDACTED
     schema = research_schema(thesis)
     report = router.complete(
-        research_prompt(row["raw_text"], row["source_url"], thesis),
+        research_prompt(text, row["source_url"], thesis),
         schema=schema, sending=sending, system=for_task("research"),
     )
-    report, removed = ground_report(dict(report), row["raw_text"] or "", thesis)
+    # Grounded against what the model was shown, so a claim cannot be "supported"
+    # by text it never saw.
+    report, removed = ground_report(dict(report), text, thesis)
     if removed:
         log.info("dropped unsupported fields for %s: %s",
                  row["source_url"], ", ".join(removed))

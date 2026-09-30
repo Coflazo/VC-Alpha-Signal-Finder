@@ -124,3 +124,23 @@ def test_save_verdict_reads_the_six_signal_shape(conn):
     assert row["stage_guess"] == "pre-seed"
     assert row["confidence"] == pytest.approx(signals.combine(scores, thesis.weights))
     assert json.loads(row["triage_json"]) == VERDICT
+
+
+def test_research_on_a_private_row_sees_only_a_fragment():
+    """scripts/run_stage4.py passes Sending.PUBLIC for every ranked row, and the
+    pipeline passed REDACTED with the raw text still in the prompt. Either way a
+    private message reached a cloud model whole. research() now decides from the
+    row's own source, which no caller can get wrong."""
+    from vc_alpha.output.report import research
+
+    thesis = next(t for t in theses.load_all() if t.id == "treeo")
+    router = FakeRouter()
+    row = {"source": "extension_private", "source_url": "https://mail.google.com/x",
+           "raw_text": "Ayse's divorce is final. We are raising a seed round for "
+                       "our AI procurement startup."}
+
+    research(router, row, thesis, Sending.PUBLIC)
+
+    prompt, sending = router.sent[0]
+    assert sending is Sending.REDACTED
+    assert "divorce" not in prompt

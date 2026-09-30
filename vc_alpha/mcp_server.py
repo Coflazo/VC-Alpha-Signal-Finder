@@ -57,6 +57,12 @@ def _safe_text(source: str, text: str | None, limit: int = 400) -> str:
     return (text or "")[:limit]
 
 
+def _safe_title(source: str, title: str | None) -> str | None:
+    """Titles need the same rule. A WhatsApp title is the chat name and the start
+    of the message; an inbound or private-capture title is an email subject."""
+    return None if source in PRIVATE_SOURCES else title
+
+
 @mcp.tool()
 def list_funds() -> list[dict[str, Any]]:
     """List the investment theses configured, with what each fund looks for.
@@ -88,7 +94,7 @@ def search_candidates(fund: str | None = None, limit: int = 10,
             except ValueError:
                 pass
         out.append({
-            "title": r["title"],
+            "title": _safe_title(r["source"], r["title"]),
             "url": r["source_url"],
             "source": r["source"],
             "author": r["author"],
@@ -133,7 +139,8 @@ def get_founder(founder_id: str) -> dict[str, Any]:
 
     detail = json.loads(row["signals_json"]) if row["signals_json"] else {}
     evidence = [
-        {"source": e["source"], "url": e["source_url"], "title": e["title"],
+        {"source": e["source"], "url": e["source_url"],
+         "title": _safe_title(e["source"], e["title"]),
          "text": _safe_text(e["source"], e["raw_text"], 300)}
         for e in entities.evidence(conn, founder_id)
     ]
