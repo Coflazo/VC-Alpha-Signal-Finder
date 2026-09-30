@@ -36,8 +36,10 @@ def test_public_source_text_passes_through(source):
     assert "I built an invoice tool" in _safe_text(source, "I built an invoice tool")
 
 
-def test_whatsapp_and_inbound_are_both_treated_as_private():
-    assert PRIVATE_SOURCES == {"whatsapp", "inbound"}
+def test_every_private_source_is_withheld_here_too():
+    """Inbound is private to this boundary on top of the pipeline's own list, and
+    a page the analyst marked private in the browser extension is private here."""
+    assert {"whatsapp", "inbound", "extension_private"} <= PRIVATE_SOURCES
 
 
 def test_truncation_does_not_leak_the_tail():

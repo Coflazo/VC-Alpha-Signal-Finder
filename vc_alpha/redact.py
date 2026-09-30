@@ -14,6 +14,13 @@ from __future__ import annotations
 
 import re
 
+# Sources whose raw text is private. Embedded locally only, and triaged on a
+# fragment from `extract`, never the text itself. One constant so that every stage
+# reads the same rule: a source added here is protected everywhere at once.
+# `extension_private` is a page the analyst marked private in the browser
+# extension, such as an email or an internal document.
+PRIVATE_SOURCES = frozenset({"whatsapp", "extension_private"})
+
 # Lines that carry a lead: a link, or somebody describing a company doing something.
 _URL = re.compile(r"https?://\S+")
 _PHONE = re.compile(r"[+(]?\d[\d\s().-]{6,}\d")

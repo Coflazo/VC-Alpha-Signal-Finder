@@ -21,6 +21,7 @@ import httpx
 
 from vc_alpha.fastpath import cosine_blobs
 from vc_alpha.filters import reject
+from vc_alpha.redact import PRIVATE_SOURCES
 from vc_alpha.theses import Thesis
 
 log = logging.getLogger(__name__)
@@ -208,7 +209,7 @@ def score_pending(
     vectors = thesis_vectors(emb, theses)
     by_id = {t.id: t for t in theses}
 
-    # WhatsApp text is private and must be embedded locally. Rather than trusting
+    # Private sources must be embedded locally. Rather than trusting
     # callers to remember, a cloud embedder simply does not see those rows.
     #
     # Rows embedded by a *different* model are picked up too. Their stored vector
@@ -219,7 +220,8 @@ def score_pending(
            "AND filtered_reason IS NULL")
     params: list = [emb.fingerprint]
     if emb.provider != "ollama":
-        sql += " AND source NOT IN ('whatsapp')"
+        sql += f" AND source NOT IN ({','.join('?' * len(PRIVATE_SOURCES))})"
+        params.extend(sorted(PRIVATE_SOURCES))
     if limit:
         sql += f" LIMIT {int(limit)}"
     rows = conn.execute(sql, params).fetchall()

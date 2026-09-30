@@ -34,11 +34,13 @@ from mcp.server.mcpserver import MCPServer
 
 from vc_alpha import entities, env, founders, paths, score, theses
 from vc_alpha.db import connect
+from vc_alpha.redact import PRIVATE_SOURCES as PIPELINE_PRIVATE
 
 env.load()
 
-# Sources whose text must not cross this boundary, mirroring app.main.LOCAL_ONLY.
-PRIVATE_SOURCES = {"whatsapp", "inbound"}
+# Sources whose text must not cross this boundary: everything the pipeline treats
+# as private, plus a fund's own inbound, mirroring app.main.LOCAL_ONLY.
+PRIVATE_SOURCES = {"inbound", *PIPELINE_PRIVATE}
 
 mcp = MCPServer("VC Alpha Signal Finder")
 

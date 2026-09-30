@@ -19,13 +19,9 @@ from vc_alpha.enrich.embed import survivors_by_rank
 from vc_alpha.llm import NoCapacityLeft, Router, Sending, set_a_key
 from vc_alpha.output.report import research, write_csv
 from vc_alpha.output.sheets_writer import push
-from vc_alpha.redact import extract
+from vc_alpha.redact import PRIVATE_SOURCES, extract
 
 log = logging.getLogger(__name__)
-
-
-# Sources whose text is private. Triage sees a redacted fragment, never the message.
-PRIVATE_SOURCES = {"whatsapp"}
 
 
 def main() -> None:
@@ -81,7 +77,7 @@ def main() -> None:
         f"""SELECT id, raw_text, thesis_id FROM candidates
             WHERE source IN ({','.join('?' * len(PRIVATE_SOURCES))})
               AND similarity >= ? AND triage_json IS NULL LIMIT ?""",
-        (*PRIVATE_SOURCES, cutoff, args.limit),
+        (*sorted(PRIVATE_SOURCES), cutoff, args.limit),
     ).fetchall():
         thesis = by_id.get(row["thesis_id"]) or active[0]
         try:
@@ -91,13 +87,7 @@ def main() -> None:
         except (NoCapacityLeft, ValueError) as e:
             log.warning("private triage stopped: %s", e)
             break
-        conn.execute(
-            """UPDATE candidates SET triage_json = ?, is_startup = ?,
-               stage_guess = ?, confidence = ? WHERE id = ?""",
-            (json.dumps(verdict), int(bool(verdict.get("is_startup"))),
-             verdict.get("stage"), float(verdict.get("confidence") or 0), row["id"]),
-        )
-        conn.commit()
+        triage.save_verdict(conn, row["id"], verdict, thesis)
 
     log.info("scored %d candidates", score.rescore(conn))
 

@@ -19,6 +19,7 @@ import sqlite3
 
 from vc_alpha.llm import NoCapacityLeft, Router, Sending
 from vc_alpha.prompts import for_task
+from vc_alpha.redact import PRIVATE_SOURCES
 from vc_alpha.signals import SIGNALS, combine, schema
 from vc_alpha.theses import Thesis
 
@@ -83,6 +84,36 @@ def triage_one(
                            sending=sending, system=for_task("triage"))
 
 
+def save_verdict(conn: sqlite3.Connection, candidate_id: str, verdict: dict,
+                 thesis: Thesis) -> dict[str, float]:
+    """Store one triage verdict. Every caller writes through here.
+
+    The private loop in pipeline.py used to write its own UPDATE, reading
+    `is_startup` and `confidence` straight off the verdict. The six-signal schema
+    has neither key, so every private row was stored as a non-startup with zero
+    confidence and never reached a ranking. One writer keeps the columns derived
+    the same way whichever path produced the verdict.
+
+    Returns the per-signal scores, for callers that report them.
+    """
+    scores = {
+        s.key: float((verdict.get(s.key) or {}).get("score") or 0.0)
+        for s in SIGNALS
+    }
+    conn.execute(
+        """UPDATE candidates
+           SET triage_json = ?, is_startup = ?, stage_guess = ?, confidence = ?
+           WHERE id = ?""",
+        (json.dumps(verdict),
+         int(scores["is_building"] >= 0.5),
+         verdict.get("stage"),
+         combine(scores, thesis.weights),
+         candidate_id),
+    )
+    conn.commit()
+    return scores
+
+
 def run(
     conn: sqlite3.Connection,
     router: Router,
@@ -97,11 +128,15 @@ def run(
 
     `source` narrows to one collector. Useful when a fund wants its own inbound
     screened first, and when only some sources yield entities worth a dossier.
+
+    Private sources are never selected here, whatever `sending` says. Their raw
+    text must not go out; pipeline.py triages them on a redacted fragment instead.
     """
     by_id = {t.id: t for t in theses}
     sql = ["""SELECT id, raw_text, title, thesis_id FROM candidates
-              WHERE similarity >= ? AND triage_json IS NULL"""]
-    params: list = [threshold]
+              WHERE similarity >= ? AND triage_json IS NULL""",
+           f"AND source NOT IN ({','.join('?' * len(PRIVATE_SOURCES))})"]
+    params: list = [threshold, *sorted(PRIVATE_SOURCES)]
     if source:
         sql.append("AND source = ?")
         params.append(source)
@@ -127,21 +162,7 @@ def run(
             log.warning("unparseable reply for %s: %s", row["id"][:8], e)
             continue
 
-        scores = {
-            s.key: float((verdict.get(s.key) or {}).get("score") or 0.0)
-            for s in SIGNALS
-        }
-        conn.execute(
-            """UPDATE candidates
-               SET triage_json = ?, is_startup = ?, stage_guess = ?, confidence = ?
-               WHERE id = ?""",
-            (json.dumps(verdict),
-             int(scores["is_building"] >= 0.5),
-             verdict.get("stage"),
-             combine(scores, thesis.weights),
-             row["id"]),
-        )
-        conn.commit()
+        scores = save_verdict(conn, row["id"], verdict, thesis)
         stats["triaged"] += 1
         stats["startups"] += int(scores["is_building"] >= 0.5)
 
