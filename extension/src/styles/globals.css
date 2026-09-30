@@ -1,0 +1,163 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --bg: #F6F7F8;
+  --surface: #FFFFFF;
+  --surface-strong: #F1F4F5;
+  --text: #14252D;
+  --muted: #63727A;
+  --line: rgba(20, 37, 45, 0.12);
+  --line-strong: rgba(20, 37, 45, 0.22);
+  --accent: #0E7C66;
+  --accent-strong: #075E54;
+  --accent-light: #4FB79F;
+  --accent-soft: rgba(14, 124, 102, 0.1);
+  --accent-muted: rgba(14, 124, 102, 0.26);
+  --shadow: 0 12px 36px rgba(20, 37, 45, 0.08);
+  /* Emil Kowalski custom easing curves. Built-ins are too weak. */
+  --ease-emil: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #111719;
+  --surface: #171F22;
+  --surface-strong: #1F2A2E;
+  --text: #F4F7F7;
+  --muted: #A6B2B6;
+  --line: rgba(244, 247, 247, 0.1);
+  --line-strong: rgba(244, 247, 247, 0.2);
+  --accent: #49B897;
+  --accent-strong: #7AD0B6;
+  --accent-light: #A2E1CF;
+  --accent-soft: rgba(73, 184, 151, 0.12);
+  --accent-muted: rgba(73, 184, 151, 0.32);
+  --shadow: 0 16px 42px rgba(0, 0, 0, 0.24);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 360px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Geist, Satoshi, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  letter-spacing: 0;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+.treeo-shell {
+  background: linear-gradient(180deg, var(--bg), color-mix(in srgb, var(--surface-strong) 62%, var(--bg)));
+}
+
+.surface {
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.hairline {
+  border-color: var(--line);
+}
+
+.data-font {
+  font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-ring:focus-visible {
+  outline: 3px solid var(--accent-muted);
+  outline-offset: 2px;
+}
+
+.scrollbar-clean {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.scrollbar-clean::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollbar-clean::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+}
+
+.react-flow {
+  background: var(--surface);
+  border-radius: 8px;
+}
+
+.react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--line);
+}
+
+/* Stagger sections in on mount with a short cascade. Mount the class on the
+   parent; each child fades up with an incremental delay. Honors reduced motion.
+   Delays kept under 600ms total so the panel is interactive almost immediately. */
+.stagger > * {
+  animation: treeo-fade-up 380ms var(--ease-emil) both;
+}
+
+.stagger > *:nth-child(1)  { animation-delay: 0ms; }
+.stagger > *:nth-child(2)  { animation-delay: 40ms; }
+.stagger > *:nth-child(3)  { animation-delay: 80ms; }
+.stagger > *:nth-child(4)  { animation-delay: 120ms; }
+.stagger > *:nth-child(5)  { animation-delay: 160ms; }
+.stagger > *:nth-child(6)  { animation-delay: 200ms; }
+.stagger > *:nth-child(7)  { animation-delay: 240ms; }
+.stagger > *:nth-child(8)  { animation-delay: 280ms; }
+.stagger > *:nth-child(9)  { animation-delay: 320ms; }
+.stagger > *:nth-child(10) { animation-delay: 360ms; }
+.stagger > *:nth-child(11) { animation-delay: 400ms; }
+.stagger > *:nth-child(12) { animation-delay: 440ms; }
+
+@keyframes treeo-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .stagger > * { animation: none; opacity: 1; transform: none; }
+}

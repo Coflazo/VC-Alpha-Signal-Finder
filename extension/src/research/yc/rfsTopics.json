@@ -1,0 +1,46 @@
+{
+  "version": "2026-06",
+  "updatedAt": "2026-06-01T00:00:00.000Z",
+  "topics": [
+    {
+      "topic": "AI agents for work",
+      "keywords": ["agent", "agentic", "workflow", "automation", "copilot", "back office", "ops", "knowledge worker", "operator"],
+      "url": "https://www.ycombinator.com/rfs"
+    },
+    {
+      "topic": "Developer tools and infrastructure",
+      "keywords": ["developer", "infrastructure", "api", "observability", "data pipeline", "ci", "cd", "deploy", "monitoring", "sdk"],
+      "url": "https://www.ycombinator.com/rfs"
+    },
+    {
+      "topic": "Healthcare operations",
+      "keywords": ["healthcare", "clinic", "medical", "patient", "insurance", "ehr", "claims", "prior authorization", "rcm"],
+      "url": "https://www.ycombinator.com/rfs"
+    },
+    {
+      "topic": "Fintech infrastructure",
+      "keywords": ["fintech", "payments", "banking", "compliance", "risk", "kyc", "aml", "ledger", "billing"],
+      "url": "https://www.ycombinator.com/rfs"
+    },
+    {
+      "topic": "Climate and industrial software",
+      "keywords": ["climate", "energy", "manufacturing", "supply chain", "industrial", "logistics", "warehousing", "decarbonization"],
+      "url": "https://www.ycombinator.com/rfs"
+    },
+    {
+      "topic": "Vertical SaaS",
+      "keywords": ["vertical", "saas", "industry", "workflow", "b2b", "operations", "field service", "construction", "legal", "real estate"],
+      "url": "https://www.ycombinator.com/rfs"
+    },
+    {
+      "topic": "Voice and multimodal AI",
+      "keywords": ["voice", "speech", "multimodal", "vision", "transcription", "phone", "call center", "ivr"],
+      "url": "https://www.ycombinator.com/rfs"
+    },
+    {
+      "topic": "Founder-led GTM tooling",
+      "keywords": ["sales", "outbound", "crm", "lead", "pipeline", "rev ops", "founder gtm", "outreach"],
+      "url": "https://www.ycombinator.com/rfs"
+    }
+  ]
+}

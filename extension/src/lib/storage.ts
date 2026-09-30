@@ -1,0 +1,15 @@
+export {
+  DEFAULT_SETTINGS,
+  applyTheme,
+  claimsForEvidence,
+  deleteAllLocalData,
+  evidenceForClaim,
+  getDeals,
+  getLastDeal,
+  getRunsForDeal,
+  getSettings,
+  saveDeal,
+  saveRuns,
+  saveSettings,
+  updateDeal,
+} from '../db/repositories';
