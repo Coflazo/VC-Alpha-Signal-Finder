@@ -1,9 +1,10 @@
 import { defineManifest } from '@crxjs/vite-plugin';
 
 /**
- * Manifest V3. Permissions are kept to the minimum the product actually uses;
- * `host_permissions` is intentionally empty — capture only runs after the
- * analyst clicks an action, gated by `activeTab` + `scripting`.
+ * Manifest V3. Permissions are kept to the minimum the product actually uses.
+ * Capture only runs after the analyst clicks an action, gated by `activeTab` +
+ * `scripting`. The one host permission is the local VC Alpha engine, so the
+ * service worker can post a capture to it; no website is granted anything.
  *
  * `alarms` is required by `src/lib/retention.ts` for the daily purge.
  * `minimum_chrome_version` locks out browsers without the side panel API and
@@ -44,4 +45,5 @@ export default defineManifest({
     open_in_tab: true,
   },
   permissions: ['activeTab', 'storage', 'sidePanel', 'scripting', 'alarms'],
+  host_permissions: ['http://127.0.0.1:8420/*'],
 });

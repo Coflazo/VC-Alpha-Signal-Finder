@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client';
 import { z } from 'zod';
 import '../styles/globals.css';
 import { Badge, Button, Card, Input, LogoLockup, Textarea } from '../components/ui';
+import { ENGINE_URL } from '../engine/engineClient';
 import { DEFAULT_SETTINGS, applyTheme, deleteAllLocalData, getSettings, saveSettings } from '../lib/storage';
 import type { ProviderName, ThemeMode, TreeoSettings } from '../lib/types';
 
@@ -283,6 +284,26 @@ function OptionsApp() {
                   value={settings.producthuntToken}
                   helperText="When blank, Product Hunt research is silently skipped instead of erroring."
                   onChange={(event) => update('producthuntToken', event.target.value)}
+                />
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <h2 className="text-xl font-semibold">VC Alpha engine</h2>
+            <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+              The engine on this machine ({ENGINE_URL}) screens each capture against your fund's thesis and keeps it with everything else it has collected. Start it with <code>uv run vc-alpha</code>.
+            </p>
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <Toggle checked={settings.engineEnabled} onCheckedChange={(checked) => update('engineEnabled', checked)} label="Send captures to the engine" description="Pages marked private in the popup are embedded locally only and triaged on a redacted fragment." />
+              <div>
+                <label className="text-sm font-semibold" htmlFor="engine-thesis">Fund thesis</label>
+                <Input
+                  id="engine-thesis"
+                  className="mt-2 w-full"
+                  value={settings.engineThesis}
+                  helperText="A thesis id configured in the engine, such as treeo. Leave blank to use its best match."
+                  onChange={(event) => update('engineThesis', event.target.value)}
                 />
               </div>
             </div>

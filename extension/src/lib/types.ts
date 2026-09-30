@@ -127,6 +127,10 @@ export interface TreeoSettings {
   /** Optional Product Hunt API v2 token. When blank, Product Hunt research is silently skipped. */
   producthuntToken: string;
   minScoreForReview: number;
+  /** Send each capture to the local VC Alpha engine as well as scoring it here. */
+  engineEnabled: boolean;
+  /** Fund thesis id the engine screens captures against. Blank: its best match. */
+  engineThesis: string;
   focusMarkets: string[];
   providerOrder: ProviderName[];
   providers: Record<ProviderName, ProviderSettings>;
@@ -576,9 +580,35 @@ export interface TreeoDeal {
   productHuntLaunches?: ProductHuntLaunchRecord[];
   ycSignals?: YcSignalRecord[];
   graph?: FounderGraph;
+  /** What the local VC Alpha engine made of the same capture, or why it could not say. */
+  engine?: EngineResult;
   createdAt: string;
   updatedAt: string;
 }
+
+/** One of the engine's six triage signals, with the quote behind it. */
+export interface EngineSignal {
+  key: string;
+  score: number;
+  quote: string;
+}
+
+/** The response of POST /api/capture on the VC Alpha engine. */
+export interface EngineVerdict {
+  id: string | null;
+  status: 'scored' | 'stored' | 'excluded';
+  source: string | null;
+  thesis: { id: string; name: string } | null;
+  similarity: number | null;
+  confidence: number | null;
+  score: number | null;
+  stage: string | null;
+  summary: string | null;
+  signals: EngineSignal[];
+  note: string;
+}
+
+export type EngineResult = { ok: true; verdict: EngineVerdict } | { ok: false; reason: string };
 
 export interface PipelineStats {
   totalDeals: number;
@@ -593,7 +623,7 @@ export type RuntimeMessage =
   | { type: 'TREEO_GET_VISIBLE_PAGE' }
   | { type: 'TREEO_GET_SELECTED_TEXT' }
   | { type: 'TREEO_PROFILE_RESULT'; payload: ExtractedProfile }
-  | { type: 'TREEO_ANALYZE_CURRENT'; payload?: { tabId?: number; mode?: CaptureMode; rawText?: string; sourceUrl?: string; sourceTitle?: string } }
+  | { type: 'TREEO_ANALYZE_CURRENT'; payload?: { tabId?: number; mode?: CaptureMode; rawText?: string; sourceUrl?: string; sourceTitle?: string; private?: boolean } }
   | { type: 'TREEO_ANALYSIS_COMPLETE'; payload: TreeoDeal }
   | { type: 'TREEO_SAVE_DEAL'; payload: TreeoDeal }
   | { type: 'TREEO_UPDATE_DEAL'; payload: TreeoDeal }

@@ -25,6 +25,8 @@ export const DEFAULT_SETTINGS: TreeoSettings = {
   githubToken: '',
   producthuntToken: '',
   minScoreForReview: 72,
+  engineEnabled: true,
+  engineThesis: 'treeo',
   focusMarkets: DEFAULT_FOCUS_MARKETS,
   providerOrder: ['mock', 'groq', 'gemini', 'openrouter', 'localhost'],
   providers: {

@@ -3,18 +3,19 @@ import { FileUp, PanelRightOpen, RefreshCcw, Scissors, Settings, Sparkles, TextC
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import '../styles/globals.css';
-import { Badge, Button, Card, IconButton, LogoLockup, RadixProgress, Recommendation, ScoreRing, Textarea, Toast } from '../components/ui';
+import { Badge, Button, Card, IconButton, LogoLockup, RadixProgress, RadixSwitch, Recommendation, ScoreRing, Textarea, Toast } from '../components/ui';
+import { isPrivateHost } from '../engine/engineClient';
 import { applyTheme, getLastDeal, getSettings } from '../lib/storage';
 import type { CaptureMode, RuntimeMessage, TreeoDeal, TreeoSettings } from '../lib/types';
 import { isLinkedInLikeUrl } from '../content/pageClassifier';
 
 const queryClient = new QueryClient();
 
-function analyze(mode: CaptureMode, rawText?: string, sourceTitle?: string): Promise<TreeoDeal> {
+function analyze(mode: CaptureMode, rawText?: string, sourceTitle?: string, isPrivate?: boolean): Promise<TreeoDeal> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({
       type: 'TREEO_ANALYZE_CURRENT',
-      payload: { mode, rawText, sourceTitle },
+      payload: { mode, rawText, sourceTitle, private: isPrivate },
     } satisfies RuntimeMessage, (response) => {
       if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
       else if (!response?.ok) reject(new Error(response?.error ?? 'Analysis failed'));
@@ -166,9 +167,12 @@ function PopupApp() {
   const [pasteText, setPasteText] = React.useState('');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [lastRequest, setLastRequest] = React.useState<{ mode: CaptureMode; rawText?: string; sourceTitle?: string } | null>(null);
+  // Null until the analyst touches the switch; until then webmail defaults to private.
+  const [privateChoice, setPrivateChoice] = React.useState<boolean | null>(null);
+  const isPrivate = privateChoice ?? isPrivateHost(activeTab.data);
 
   const analyzeMutation = useMutation({
-    mutationFn: ({ mode, rawText, sourceTitle }: { mode: CaptureMode; rawText?: string; sourceTitle?: string }) => analyze(mode, rawText, sourceTitle),
+    mutationFn: ({ mode, rawText, sourceTitle }: { mode: CaptureMode; rawText?: string; sourceTitle?: string }) => analyze(mode, rawText, sourceTitle, isPrivate),
     onMutate: (payload) => { setLastRequest(payload); },
     onSuccess: (deal) => {
       qc.setQueryData(['lastDeal'], deal);
@@ -221,6 +225,17 @@ function PopupApp() {
         ) : null}
 
         <section style={{ ['--index' as string]: 3 } as React.CSSProperties} className="mt-5 grid gap-2">
+          {settings?.engineEnabled ? (
+            <label className="flex items-center justify-between gap-3 rounded-md border border-[var(--line)] px-3 py-2">
+              <span>
+                <span className="block text-sm font-semibold">Private page</span>
+                <span className="block text-xs leading-5 text-[var(--muted)]">Email or internal doc. The engine only sees a redacted fragment.</span>
+              </span>
+              <RadixSwitch.Root checked={isPrivate} onCheckedChange={setPrivateChoice} className="relative h-6 w-11 shrink-0 rounded-full bg-[var(--line-strong)] data-[state=checked]:bg-[var(--accent)]">
+                <RadixSwitch.Thumb className="block h-5 w-5 translate-x-0.5 rounded-full bg-white shadow transition data-[state=checked]:translate-x-[22px]" />
+              </RadixSwitch.Root>
+            </label>
+          ) : null}
           <CaptureButton mode="visible_page" label="Analyze visible page" pending={analyzeMutation.isPending} onClick={(mode) => analyzeMutation.mutate({ mode })} icon={<Sparkles size={16} />} />
           <CaptureButton mode="selected_text" label="Analyze selected text" pending={analyzeMutation.isPending} onClick={(mode) => analyzeMutation.mutate({ mode })} icon={<Scissors size={16} />} />
           <Button variant="ghost" className="w-full justify-start" disabled={analyzeMutation.isPending} onClick={() => setPasteOpen((open) => !open)}>

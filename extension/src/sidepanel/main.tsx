@@ -35,12 +35,14 @@ import { ScoreBreakdown } from '../components/ScoreBreakdown';
 import { applyTheme, getDeals, getLastDeal, getSettings, updateDeal } from '../lib/storage';
 import type { CaptureMode, Evidence, GraphNode, GraphNodeType, ProviderName, RuntimeMessage, TreeoDeal, TreeoSettings } from '../lib/types';
 import { nowIso, truncateMiddle } from '../lib/utils';
+import { ENGINE_URL } from '../engine/engineClient';
 import { Badge, Button, Card, IconButton, LogoLockup, Metric, Recommendation, ScoreRing, Skeleton, Textarea, Toast, recommendationLabel } from '../components/ui';
 
 const queryClient = new QueryClient();
 
 const SECTIONS: Array<{ id: string; label: string }> = [
   { id: 'investment-read', label: 'Investment read' },
+  { id: 'thesis-fit', label: 'Thesis fit' },
   { id: 'score-math', label: 'Score math' },
   { id: 'founder', label: 'Founder' },
   { id: 'startup', label: 'Startup' },
@@ -216,6 +218,59 @@ function StickyHeader({ deal, llmLabel }: { deal: TreeoDeal; llmLabel: string })
       <p className="text-xs leading-relaxed text-[var(--muted)]">
         <span className="font-semibold text-[var(--text)]">Next:</span> {deal.score.nextAction}
       </p>
+    </Card>
+  );
+}
+
+const ENGINE_SIGNAL_LABELS: Record<string, string> = {
+  is_building: 'Building something',
+  thesis_fit: 'Fits the thesis',
+  founder_quality: 'Founder quality',
+  timing: 'Timing',
+  reachable: 'Reachable',
+  too_late: 'Too late (subtracts)',
+};
+
+/** What the local VC Alpha engine made of this capture, shown beside the local score. */
+function ThesisFit({ deal }: { deal: TreeoDeal }) {
+  const engine = deal.engine;
+  if (!engine || !engine.ok) {
+    return (
+      <Card>
+        <p className="text-sm leading-6 text-[var(--muted)]">
+          {engine ? engine.reason : 'This capture was not sent to the VC Alpha engine. File imports never are; for pages, turn it on in Settings.'}
+        </p>
+      </Card>
+    );
+  }
+  const verdict = engine.verdict;
+  return (
+    <Card>
+      {verdict.summary ? <p className="text-sm leading-6">{verdict.summary}</p> : null}
+      {verdict.note ? <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{verdict.note}</p> : null}
+      {verdict.signals.length ? (
+        <>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <Metric label="Thesis fit" value={verdict.confidence === null ? '–' : `${Math.round(verdict.confidence * 100)}%`} detail="six signals combined" />
+            <Metric label="Similarity" value={verdict.similarity === null ? '–' : verdict.similarity.toFixed(2)} detail="cosine to the thesis" />
+            <Metric label="Stage" value={verdict.stage ?? 'unknown'} />
+          </div>
+          <ul className="mt-4 grid gap-2">
+            {verdict.signals.map((signal) => (
+              <li key={signal.key} className="rounded-md border border-[var(--line)] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">{ENGINE_SIGNAL_LABELS[signal.key] ?? signal.key}</span>
+                  <span className="data-font text-xs text-[var(--muted)]">{Math.round(signal.score * 100)}%</span>
+                </div>
+                <p className="mt-1 text-sm leading-5 text-[var(--muted)]">
+                  {signal.quote ? `"${signal.quote}"` : 'No supporting quote in the text.'}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      <a className="mt-4 inline-flex text-xs text-[var(--accent)]" href={ENGINE_URL} target="_blank" rel="noreferrer">Open the engine ↗</a>
     </Card>
   );
 }
@@ -571,6 +626,10 @@ function CommandCenter() {
                   Next action: <span className="text-[var(--text)]">{active.score.nextAction}</span>
                 </p>
               </Card>
+            </Section>
+
+            <Section id="thesis-fit" title="Thesis fit" action={active.engine?.ok && active.engine.verdict.thesis ? <Badge tone="teal">{active.engine.verdict.thesis.name}</Badge> : undefined}>
+              <ThesisFit deal={active} />
             </Section>
 
             <Section id="score-math" title="Score math">
