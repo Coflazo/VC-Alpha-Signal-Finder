@@ -19,12 +19,13 @@ import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from vc_alpha import entities, env, founders, paths, score, secrets, theses, warmpath
+from vc_alpha import (
+    capture, entities, env, founders, paths, score, secrets, theses, warmpath)
 from vc_alpha.app import sheets
 from vc_alpha.app.jobs import runner
 from vc_alpha.db import connect, expiring_within, forget_author, purge_expired
@@ -231,6 +232,35 @@ def review(candidate_id: str, verdict: Verdict) -> dict:
     if not cur.rowcount:
         raise HTTPException(404, "no such candidate")
     return {"ok": True}
+
+
+class CaptureRequest(BaseModel):
+    text: str
+    url: str | None = None
+    title: str | None = None
+    private: bool = False
+    thesis: str | None = None
+
+
+@app.post("/api/capture")
+def capture_page(req: CaptureRequest, request: Request) -> dict:
+    """A page sent from the browser extension. See vc_alpha/capture.py.
+
+    Any web page open in the same browser can reach 127.0.0.1 too, so the Origin
+    is checked. The extension sends its own `chrome-extension://` origin; curl and
+    other local tools send none. A page on any website sends its site, and is
+    refused, so it cannot plant candidates in a fund's pipeline.
+    """
+    origin = request.headers.get("origin")
+    if origin is not None and not origin.startswith("chrome-extension://"):
+        raise HTTPException(403, "Captures are only accepted from the browser extension.")
+    try:
+        return capture.capture(db(), req.text, url=req.url, title=req.title,
+                               private=req.private, thesis_id=req.thesis)
+    except capture.UnknownThesis as e:
+        raise HTTPException(404, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @app.get("/api/calibration")
